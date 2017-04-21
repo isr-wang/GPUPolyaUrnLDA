@@ -1,0 +1,142 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{color}
+
+\newcommand{\mm}[1]{{\textcolor{magenta}{[Mans: #1]}}}
+\newcommand{\at}[1]{{\textcolor{green}{[Alex: #1]}}}
+
+\title{Design - GPU implementation of Polya-Urn LDA}
+\author{Alex Terenin, Måns Magnusson, Kubal?, ???, David Draper}
+\date{April 2017}
+
+\begin{document}
+
+\maketitle
+
+
+\section{Introduction - purpose of document}
+
+This document contains the design considerations of the GPU Polya-Urn LDA sampler together with implementations. The purpose is to describe challenges and potential solutions for this implementation in a way that makes it easy to convert this document into an article later on.
+
+\subsection{Notation}
+
+The notation used can be found in Table \ref{notation}.
+
+\begin{table} 
+\begin{center}
+\small{
+\begin{tabular}{c l c c l}
+\hline
+Symbol & Description && Symbol & Description
+\\
+\cline{1-2} \cline{4-5}
+$V$ & Vocabulary size && $\m{\Phi} : K \times V$ & Word-topic probabilities
+\\
+$D$ & Total number of documents && $\phi_k : 1 \times V$ & Word probabilities for topic $k$
+\\
+$N$ & Total number of words && $\beta : 1 \times V$ & Prior concentration vector for $\phi_k$
+\\
+$K$ & Total number of topics && $\m{n} : K \times V$ & Topic-word sufficient statistic
+\\
+$v(i)$ & Word type for word $i$ && $\m{\Theta} : D \times K$ & Document-topic probabilities
+\\
+$d(i)$ & Document for word $i$ && $\theta_d : 1 \times K$ & Topic probabilities for document $d$
+\\
+$w_{i,d}$ & Word $i$ in document $d$ && $\alpha : 1 \times K$ & Prior concentration vector for $\theta_d$
+\\
+$z_{i,d}$ & Topic indicator for word $i$ in $d$ && $\m{m} : D \times K$ & Document-topic sufficient statistic
+\\
+\hline
+\end{tabular}
+}
+\end{center}
+\caption{Notation for LDA. Sufficient statistics are conditional on algorithm's current iteration. Bold symbols refer to matrices, bold italic symbols refer to vectors.}
+\label{notation}
+\end{table}
+
+
+\section{Steps for implementation}
+
+\begin{enumerate}
+  \item Implement a function to convert a corpus to binary, main memory, format. The function should also write out the vocabulary and document ids.
+  \item Implement SabreLDA Warp-voting
+  \item Implement W-ary trees
+  \item Implement SabreLDA
+  \item Implement Polya-Urn LDA  
+\end{enumerate}
+
+
+\section{Questions, ideas and comments}
+
+Below are some question and general comments to discuss further.
+
+\begin{itemize}
+  \item SabreLDA is storing the $\mathbf{A}$ matrix ($\mathbf{m}$) on disc as well. They also recalculate the whole vector each time? Why? Do we need to store $\mathbf{A}$? In Mallet we recalculate this on the fly when we sample a new document (called \texttt{localTopicCounts}). It should be fast to compute $m_d$ with the method they propose. They do not seem to update $\mathbf{A}$ in each step instead of doing it after a chunk of documents?
+  \item They partition by document chunks and then by word order. The motivation for this is that $\hat{B}$ is dense while $\mathbf{A}$ is sparse. We do not have this situation, so I'm not sure we need to do this?
+  \item I know that in the paper on large scale LDA by Yahoo LDA (Smola et al. 2012) they store different parts of the matrix $n$ in dense and sparse format depending if the words are rare or common. Rare words are stored sparsely while more common word are stored in a dense matrix. Maybe we should do something similar?
+  \item We have sparsity in $\Phi$, and that makes it possible for us to produce sparse Alias tables (or sparse W-ary trees), something that they cannot do. This is a benefit for us - it will reduce the cost of sampling with W-ary trees (or sparse Alias tables) quite much.
+  \item The sparsity in Phi will be quite large. We will have a smaller memory need (for Pubmed approx 1-2\% of what they need, for $\beta = 0.01$).
+  \item They think updating A is difficult due to sparsity. We will have that problem but much more aggravated. We both have a sparse $m$ and $n$. 
+  \item Similar to SabreLDA, we want to study the memory cost of: The $m$, $n$, $\Phi$ and the Wary-trees/Alias tables. We also want to study how much time each part takes: sampling $z$, sampling $\Phi$, I/O (streaming), and construction of the Wary-trees/sparse Alias tables.
+\end{itemize}
+
+
+\section{Challenges}
+
+\subsection{Computing the intersection of two sparse vectors}
+
+In the core of the Gibbs sampling algorithm one of the main parts are to sample from the two vectors $\phi_v \times m_d$ (element-wise multiplication and cumulative sum. Since both vectors are sparse, it can be difficult to compute this element efficiently in $O(\min(K_d, K_v)$ time.
+
+Potential solutions are:
+
+\begin{itemize}
+  \item Skiplists \mm{Alex fill out this more, why this would be smart}
+  \item Hashmaps for storing $\Phi$ (and $m$). In a hashmap may both save storage and would still make it possible to do a lookup in constant time. \mm{Question: How big is a Hashmap memory footprint? And how do these HashMaps handle multiple threads writing to the same position?}
+  \item Maybe use local (non-sparse) arrays for $m$ since this is updated in each iteration?
+\end{itemize}
+
+\subsection{Alias tables or sparse W-ary trees}
+
+In SabreLDA they conclude that the construction of an Alias table construction is $O(K)$ and this table can be used to sample in $O(1)$ time. But this, according to the authors, cannot be done on a GPU, since implementing the Alias table is sequential. 
+
+The original Walker-Alias algorithm is sequential, but it should be able to do in a GPU setting, although it may not be as efficient as constructing a W-ary tree. But constructing the (sparse) Alias tables are still just a tiny part of the algorithm while drawing samples is used extensively. I think we should study using the Alias approach.
+
+The construction of a Walker Alias table is not fully sequential although it is described this way. 
+
+I'm thinking of a potential solution where we first sort the probabilities. This would, if we have a sparse $\Phi$, eventually be possible to create a table in $O(K_v \cdot \log(K_v)$ by sorting the proportions before creating the table and sorting is something that can be done effectively in parallel. I need to sketch a little bit on this. But if we would be able to create an Alias table we would get a better complexity. 
+
+The Wary Trees, on the other hand, would need to be applied to a sparse situation. I do not think this should be that difficult, and then the wary trees can probably be extremely fast. But they need to be adapted to a sparse vector.
+
+\subsection{Updating $m$ and $n$}
+
+Unlike SableLDA we need to update $m$ in sampling each token $z_i$ in each iteration \mm{I do not know why they just ignore this in their approach}. If $m_d$ is stored in sparse format updating them will probably be relatively costly as well. In each iteration we need to decrease $m_{d,kold}$ and increase $m_{d,knew}$. Updating $n$ on, the other hand, can be done chunk-wise after all sampling are done for a document, chunk of documents or the whole corpus.
+
+\section{Formats}
+
+\subsection{I/O formats}
+
+The basic format of the textual documents should be the same format as is used by the Mallet framework. This means that each document is stored as one document per line with tokens separated by space. The first element can be a document id (then it is separated by \texttt{\\tab}).
+
+The second format is the binary format written to disc that consists of both the topic indicator and the tokens. When we read in the data and transforms it to binary format we need to write out three files:
+
+\begin{itemize}
+  \item A binary token-topic indicator file.
+  \item The vocabulary (one row per word type)
+  \item Potentially document ids (one row per doc-id)
+\end{itemize}
+
+Since we want to stream in the binary indicator file from disc, we would probably need to minimize the memory footprint for this file. There are different ways we can store this, but all consists of storing one document per row. One solution would be that every token/topic pair is stored as:
+
+\bigskip
+
+\texttt{type\_idx1/topic\_idx1 type\_idx2/topic\_idx2 ... type\_idxNd/topic\_idxNd}
+
+\bigskip
+
+This should be a sufficiently memory efficient binary format.
+
+\subsection{Internal representation}
+
+In the GPU implementation of SabreLDA, they use the pair $L = [d, v, k]$ to represent a token. But this means that $d$ is stored redundantly. I do not know if it would be more efficient to store it as two arrays per document $D = [[v_1, ..., v_{N_d}], [z_1, ..., z_{N_d}]]$. That representation is more memory efficient in a CPU framework, but I do not know the potential cache effects.
+
+\end{document}
