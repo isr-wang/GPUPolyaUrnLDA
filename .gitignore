@@ -1,1 +1,6 @@
 .DS_Store
+/Debug/
+*.log
+*.aux
+*.pdf
+*.synctex.gz

@@ -1,13 +1,18 @@
 \documentclass{article}
-\usepackage[utf8]{inputenc}
+
 \usepackage{color}
+
+
+\let\textv\v %redefinition: v under letter in text
+\renewcommand{\v}{\relax\ifmmode\expandafter\boldsymbol\else\expandafter\textv\fi} %vector
+\newcommand{\m}{\expandafter\mathbf} %matrix
 
 \newcommand{\mm}[1]{{\textcolor{magenta}{[Mans: #1]}}}
 \newcommand{\at}[1]{{\textcolor{green}{[Alex: #1]}}}
+\newcommand{\ks}[1]{{\textcolor{blue}{[Kunal: #1]}}}
 
 \title{Design - GPU implementation of Polya-Urn LDA}
-\author{Alex Terenin, Måns Magnusson, Kubal?, ???, David Draper}
-\date{April 2017}
+\author{Alex Terenin, M{\aa}ns Magnusson, Kunal Sarkhel, David Draper}
 
 \begin{document}
 
