@@ -1,6 +1,7 @@
 \documentclass{article}
 
 \usepackage{color}
+\usepackage{parskip}
 
 
 \let\textv\v %redefinition: v under letter in text
@@ -140,8 +141,24 @@ Since we want to stream in the binary indicator file from disc, we would probabl
 
 This should be a sufficiently memory efficient binary format.
 
+\begin{itemize}
+\item We have committed to the Mallet input format.
+\item Serialization: data written directly to binary format
+\item Random Number Generation: use \emph{Philox} via the device API
+\item Output to Mallet state file
+\end{itemize}
+
 \subsection{Internal representation}
 
 In the GPU implementation of SabreLDA, they use the pair $L = [d, v, k]$ to represent a token. But this means that $d$ is stored redundantly. I do not know if it would be more efficient to store it as two arrays per document $D = [[v_1, ..., v_{N_d}], [z_1, ..., z_{N_d}]]$. That representation is more memory efficient in a CPU framework, but I do not know the potential cache effects.
+
+\subsection{What gets stored where}
+\begin{itemize}
+\item $\m{z}$: streaming from disk, structure consisting of document ID, length of document, array of tokens, array of topic indicators
+\item $\m\Phi$: stored on GPU, in some sparse format -- initially a lossy hash table
+\item Alias tables for $\m\Phi$: stored on GPU, recomputed when $\m\Phi$ is sampled.
+\item Alias tables for Poisson RVs: precomputed at start
+\item $\m{n}$: stored on GPU in some sparse format -- initially a lossy hash table
+\end{itemize}
 
 \end{document}
