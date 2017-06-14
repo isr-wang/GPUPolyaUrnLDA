@@ -2,6 +2,7 @@
 
 \usepackage{color}
 \usepackage{parskip}
+\usepackage{amsmath}
 
 
 \let\textv\v %redefinition: v under letter in text
@@ -26,9 +27,6 @@ This document contains the design considerations of the GPU Polya-Urn LDA sample
 
 \subsection{Notation}
 
-The notation used can be found in Table \ref{notation}.
-
-\begin{table} 
 \begin{center}
 \small{
 \begin{tabular}{c l c c l}
@@ -56,10 +54,27 @@ $z_{i,d}$ & Topic indicator for word $i$ in $d$ && $\m{m} : D \times K$ & Docume
 \end{tabular}
 }
 \end{center}
-\caption{Notation for LDA. Sufficient statistics are conditional on algorithm's current iteration. Bold symbols refer to matrices, bold italic symbols refer to vectors.}
-\label{notation}
-\end{table}
 
+\section{Steps of Algorithm}
+
+\begin{itemize}
+
+\item Sample $z_{i,d} \propto \phi_{k,v(i)} \alpha_k + \phi_{k,v(i)} + m_{d,k}^{-i}$
+
+\begin{itemize}
+\item Load $\v{z}$ from disk
+\item Sample $\v{z}$
+\end{itemize}
+
+\item Sample $\v\phi_k \sim \text{Poisson-P\'{o}lyaUrn} (\v{n}_k + \v\beta)$
+
+\begin{itemize}
+\item Sample $\tilde\gamma_{k,v} \sim \text{Pois}(\beta_v + n_{n,v})$
+\item If $\tilde\gamma_{k,v} \neq 0$: add $\tilde\gamma_{k,v}$ to $\m\Phi$
+\item Compute $\tilde\gamma_{k,\v\cdot} = \sum_{v=1}^V \tilde\gamma_{k,v}$ and set $\phi_{k,v} = \tilde\gamma_{k,v} / \tilde\gamma_{k,\v\cdot}$ in-place
+\item Transpose $\m\Phi$ by sorting it by column
+\end{itemize}
+\end{itemize}
 
 \section{Steps for implementation}
 
