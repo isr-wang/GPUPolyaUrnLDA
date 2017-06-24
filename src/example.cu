@@ -1,6 +1,6 @@
 /*
  ============================================================================
- Name        : GPUPolyaUrnLDA.cu
+ Name        : example.cu
  Author      : 
  Version     :
  Copyright   : 
