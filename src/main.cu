@@ -8,10 +8,12 @@
  ============================================================================
  */
 
-#include <stdlib.h>
+#include <iostream>
 #include "args.h"
+#include "preprocess.h"
+#include "train.h"
 
-namespace gplda {
+using namespace gplda;
 
 int main(int argc, char** argv) {
   args::parse(argc,argv);
@@ -19,6 +21,4 @@ int main(int argc, char** argv) {
   train();
   output();
   return 0;
-}
-
 }

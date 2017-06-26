@@ -1,6 +1,7 @@
 #include <iostream>
 #include <stdlib.h>
 #include "args.h"
+#include "buffer.h"
 
 namespace gplda {
 
@@ -17,7 +18,6 @@ Buffer::~Buffer() {
   delete[] w;
   delete[] dLen;
   delete[] dIdx;
-  delete nDocs;
 }
 
 }

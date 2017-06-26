@@ -1,3 +1,5 @@
+#include <string>
+
 namespace gplda {
 
 namespace args {
@@ -6,7 +8,7 @@ namespace args {
   extern unsigned int K;
   extern unsigned int nMC;
   extern long seed;
-  int bufferSize;
+  extern int bufferSize;
   extern std::string input;
   extern std::string output;
   void parse(int, char**);

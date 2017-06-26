@@ -1,4 +1,4 @@
-namespace gplda{
+namespace gplda {
 
 void train();
 

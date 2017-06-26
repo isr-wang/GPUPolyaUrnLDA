@@ -1,7 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <iostream>
-#include <include/args.hxx>
 
 namespace gplda {
 
@@ -22,6 +21,7 @@ namespace args {
   }
 
   void parse(int argc, char** argv) {
+    std::cout << "parsing args" << std::endl;
   }
 }
 
