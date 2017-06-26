@@ -9,7 +9,7 @@ FLAGS		+=	-O2
 endif
 
 LIBS 		= 	
-CFLAGS		+=	-I. -I./include $(FLAGS) -c -Wno-deprecated-gpu-targets
+CFLAGS		+=	-I. -I./include $(FLAGS) -c -Wno-deprecated-gpu-targets -Wc++11-extensions
 LDFLAGS		+=	$(FLAGS)
 
 SOURCES		= 	GPUPolyaUrnLDA.cxx LDA.cxx

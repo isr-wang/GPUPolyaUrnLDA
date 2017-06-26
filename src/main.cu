@@ -1,6 +1,6 @@
 /*
  ============================================================================
- Name        : GPUPolyaUrnLDA.cu
+ Name        : main.cu
  Author      : 
  Version     :
  Copyright   : 
@@ -9,18 +9,17 @@
  */
 
 #include <stdlib.h>
+#include "args.h"
 
-void printUsage() {
-  std::cerr
-    << "usage: gplda <input> <output>"
-    << std::endl;
-}
+namespace gplda {
 
 int main(int argc, char** argv) {
-	if(argc != 2) {
-		printUsage();
-		exit(EXIT_FAILURE);
-	}
-	GPLDA(argc, argv);
-	return 0;
+  Args args = Args();
+  args.parse(argc,argv);
+  preprocess(args);
+  train(args);
+  output(args);
+  return 0;
+}
+
 }
