@@ -3,7 +3,7 @@
 
 namespace gplda {
 
-void preprocess(std::string inFile) {
+void preprocess(Args args) {
 
 
 }

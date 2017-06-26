@@ -8,6 +8,8 @@ class Args {
     unsigned int K;
     unsigned int nMC;
     long seed;
+    std::string input;
+    std::string output;
     void parse(int, char**);
     void printUsage();
 };
