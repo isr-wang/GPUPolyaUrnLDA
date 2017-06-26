@@ -4,3 +4,6 @@
 *.aux
 *.pdf
 *.synctex.gz
+.metadata/
+.cproject
+.project

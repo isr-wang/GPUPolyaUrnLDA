@@ -154,14 +154,32 @@ void TrainTopics(const std::string& progname,
       "Binary input file consisting of topic indicators and tokens",
       {'i', "input"});
   args::ValueFlag<std::string> output_state(
-      parser, "FILE", "LDA model state file in Mallet format", {"output-state"});
-  args::ValueFlag<std::string> output_model(
-      parser, "FILE", "LDA model file", {"output-model"});
-  args::ValueFlag<int> num_topics(parser, "INTEGER", "Number of topics to fit. Default is " xstr(DEFAULT_NUM_TOPICS), {"num-topics"});
-  args::ValueFlag<int> num_iterations(parser, "INTEGER", "Number of iterations to fit. Default is " xstr(DEFAULT_NUM_ITERATIONS), {"num-iterations"});
-  args::ValueFlag<int> random_seed(parser, "INTEGER", "Random seed for the sampler. Defaults to 0 (which uses the clock). ", {"random-seed"});
-  args::ValueFlag<double> alpha(parser, "DECIMAL", "Sum over topics of smoothing over document-topic distributions; alpha_k = alpha / [num topics]. Default is " xstr(DEFAULT_ALPHA), {"alpha"});
-  args::ValueFlag<double> beta(parser, "DECIMAL", "Smoothing parameter for each topic-word; beta_w. Default is " xstr(DEFAULT_BETA), {"beta"});
+      parser, "FILE", "LDA model state file in Mallet format",
+      {"output-state"});
+  args::ValueFlag<std::string> output_model(parser, "FILE", "LDA model file",
+                                            {"output-model"});
+  args::ValueFlag<int> num_topics(
+      parser, "INTEGER",
+      "Number of topics to fit. Default is " xstr(DEFAULT_NUM_TOPICS),
+      {"num-topics"});
+  args::ValueFlag<int> num_iterations(
+      parser, "INTEGER",
+      "Number of iterations to fit. Default is " xstr(DEFAULT_NUM_ITERATIONS),
+      {"num-iterations"});
+  args::ValueFlag<int> random_seed(
+      parser, "INTEGER",
+      "Random seed for the sampler. Defaults to 0 (which uses the clock). ",
+      {"random-seed"});
+  args::ValueFlag<double> alpha(
+      parser, "DECIMAL",
+      "Sum over topics of smoothing over document-topic distributions; alpha_k "
+      "= alpha / [num topics]. Default is " xstr(DEFAULT_ALPHA),
+      {"alpha"});
+  args::ValueFlag<double> beta(
+      parser, "DECIMAL",
+      "Smoothing parameter for each topic-word; beta_w. Default is " xstr(
+          DEFAULT_BETA),
+      {"beta"});
 
   try {
     parser.ParseArgs(beginargs, endargs);
@@ -181,22 +199,25 @@ void TrainTopics(const std::string& progname,
       std::cout << "Output model file " << args::get(output_model)
                 << " already exists and will be overwritten!" << std::endl;
     } else {
-      std::cout << "Output model file: " << args::get(output_model) << std::endl;
+      std::cout << "Output model file: " << args::get(output_model)
+                << std::endl;
     }
     if (file_exists(args::get(output_state))) {
       std::cout << "Output state file " << args::get(output_state)
                 << " already exists and will be overwritten!" << std::endl;
     } else {
-      std::cout << "Output state file: " << args::get(output_state) << std::endl;
+      std::cout << "Output state file: " << args::get(output_state)
+                << std::endl;
     }
     // TODO: Perhaps check if the input and output files are the same
 
-
-    int lda_num_topics =  bool{num_topics} ? args::get(num_topics) : DEFAULT_NUM_TOPICS;
-    int lda_num_iterations =  bool{num_iterations} ? args::get(num_iterations) : DEFAULT_NUM_ITERATIONS;
+    int lda_num_topics =
+        bool{num_topics} ? args::get(num_topics) : DEFAULT_NUM_TOPICS;
+    int lda_num_iterations = bool{num_iterations} ? args::get(num_iterations)
+                                                  : DEFAULT_NUM_ITERATIONS;
     double lda_alpha = bool{alpha} ? args::get(alpha) : DEFAULT_ALPHA;
     double lda_beta = bool{beta} ? args::get(beta) : DEFAULT_BETA;
-    int lda_random_seed =  bool{random_seed} ? args::get(random_seed) : 0;
+    int lda_random_seed = bool{random_seed} ? args::get(random_seed) : 0;
 
     std::cout << "num_topics: " << lda_num_topics << std::endl;
     std::cout << "num_iterations: " << lda_num_iterations << std::endl;
@@ -208,7 +229,9 @@ void TrainTopics(const std::string& progname,
       std::cout << "random_seed: " << lda_random_seed << std::endl;
     }
 
-    LDA(args::get(input), args::get(output_model), args::get(output_state), lda_num_topics, lda_num_iterations, lda_alpha, lda_beta, lda_random_seed);
+    LDA(args::get(input), args::get(output_model), args::get(output_state),
+        lda_num_topics, lda_num_iterations, lda_alpha, lda_beta,
+        lda_random_seed);
 
   } catch (args::Help) {
     std::cout << parser;
