@@ -1,0 +1,5 @@
+namespace gplda{
+
+void train();
+
+}

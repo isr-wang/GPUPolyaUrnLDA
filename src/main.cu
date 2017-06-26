@@ -14,11 +14,10 @@
 namespace gplda {
 
 int main(int argc, char** argv) {
-  Args args = Args();
-  args.parse(argc,argv);
-  preprocess(args);
-  train(args);
-  output(args);
+  args::parse(argc,argv);
+  preprocess();
+  train();
+  output();
   return 0;
 }
 

@@ -2,7 +2,7 @@
 
 namespace gplda {
 
-void train(std::string outFile) {
+void train() {
 
 }
 
