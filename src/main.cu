@@ -12,6 +12,7 @@
 #include "args.h"
 #include "preprocess.h"
 #include "train.h"
+#include "output.h"
 
 using namespace gplda;
 
