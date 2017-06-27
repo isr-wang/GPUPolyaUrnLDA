@@ -36,7 +36,7 @@ void preprocess() {
     std::vector<int> tokens = getTokens(line);
 
     for(int i = 0; i < tokens.size(); ++i) { int r = unif(rand); zStream.write(reinterpret_cast<char*>(&r), sizeof(r)); }
-    wStream.write(reinterpret_cast<char*>(tokens.data()), tokens.size() * sizeof(int));
+    wStream.write(reinterpret_cast<char*>(tokens.data()), tokens.size() * sizeof(decltype(tokens[0])));
     dStream.write(reinterpret_cast<char*>(&d), sizeof(d));
     d++;
   }
