@@ -8,6 +8,7 @@
 \let\textv\v %redefinition: v under letter in text
 \renewcommand{\v}{\relax\ifmmode\expandafter\boldsymbol\else\expandafter\textv\fi} %vector
 \newcommand{\m}{\expandafter\mathbf} %matrix
+\let\goesto\rightarrow
 
 \newcommand{\mm}[1]{{\textcolor{magenta}{[Mans: #1]}}}
 \newcommand{\at}[1]{{\textcolor{green}{[Alex: #1]}}}
@@ -180,9 +181,26 @@ In the GPU implementation of SabreLDA, they use the pair $L = [d, v, k]$ to repr
 
 Need to store the 3-tuple $(d, w_{i,d}, z_{i,d})$. This will be stored as arrays in binary format on disk and in a preallocated buffer in memory.
 \begin{itemize}
-\item $\v{w}$: unsigned int array (4 byte per topic)
-\item $\v{z}$: unsigned short array (2 byte per topic)
-\item $\v{d}$: unsigned short array document length (2 byte per topic)
+
+\item $\v{w}$: token id
+\begin{itemize}
+\item unsigned int array
+\item 4 byte per token
+\end{itemize}
+
+\item $\v{z}$: topic indicator
+\begin{itemize}
+\item unsigned int array
+\item 4 byte per token
+\item token id sorted by rarity: most common words first
+\end{itemize}
+
+\item $\v{d}$: document length
+\begin{itemize}
+\item unsigned int array
+\item 4 byte per document
+\end{itemize}
+
 \end{itemize}
 
 \subsection{Binary Format for $\m{n}$ and $\m\Phi$}
@@ -193,8 +211,12 @@ Dense portion and lossy hash map.
 
 None: $\m{m}$ is calculated on the fly in each kernel.
 
+\subsection{Binary Format for $\v{V}$}
 
-
+We need to store $\v{V}$ for two reasons: (1) in the preprocess step, since we use PDOW format, we need the mapping token (string) $\goesto$ token id (int), and (2) in the output step, we need to print in a user-legible format, for which we need the mapping token id (int) $\goesto$ token (string).
+As token is is sorted by word rarity, we also need to compute how common each token is during preprocessing.
+Thus we need a bidirectional map.
+The simplest way to do this in STL is to store two maps: one for the forward step, one for the reverse step. Sinve $\v{V}$ is not too big, this seems like not too much of an issue.
 
 
 \end{document}
