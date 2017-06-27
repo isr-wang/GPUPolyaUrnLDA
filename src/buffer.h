@@ -5,10 +5,10 @@ class Buffer {
     Buffer();
     ~Buffer();
     unsigned int *z;
-    unsigned short *w;
-    int *dIdx;
-    int *dLen;
-    int nDocs;
+    unsigned int *w;
+    unsigned int *dIdx;
+    unsigned int *dLen;
+    unsigned int nDocs;
 };
 
 }

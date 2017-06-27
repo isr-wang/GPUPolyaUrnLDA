@@ -7,9 +7,9 @@ namespace gplda {
 
 Buffer::Buffer() {
   z = new unsigned int[args::bufferSize];
-  w = new unsigned short[args::bufferSize];
-  dLen = new int[args::bufferSize];
-  dIdx = new int[args::bufferSize];
+  w = new unsigned int[args::bufferSize];
+  dLen = new unsigned int[args::bufferSize];
+  dIdx = new unsigned int[args::bufferSize];
   nDocs = 0;
 }
 
