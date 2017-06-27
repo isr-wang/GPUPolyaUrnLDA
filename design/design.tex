@@ -176,4 +176,25 @@ In the GPU implementation of SabreLDA, they use the pair $L = [d, v, k]$ to repr
 \item $\m{n}$: stored on GPU in some sparse format -- initially a lossy hash table
 \end{itemize}
 
+\subsection{Binary Format for $\v{z}$}
+
+Need to store the 3-tuple $(d, w_{i,d}, z_{i,d})$. This will be stored as arrays in binary format on disk and in a preallocated buffer in memory.
+\begin{itemize}
+\item $\v{w}$: unsigned int array (4 byte per topic)
+\item $\v{z}$: unsigned short array (2 byte per topic)
+\item $\v{d}$: unsigned short array document length (2 byte per topic)
+\end{itemize}
+
+\subsection{Binary Format for $\m{n}$ and $\m\Phi$}
+
+Dense portion and lossy hash map.
+
+\subsection{Binary Format for $\m{m}$}
+
+None: $\m{m}$ is calculated on the fly in each kernel.
+
+
+
+
+
 \end{document}
