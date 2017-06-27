@@ -9,10 +9,13 @@ namespace args {
   float beta = 0.1;
   unsigned int K = 10;
   unsigned int nMC = 100;
-  long seed = 0;
+  unsigned long seed = 0;
   int bufferSize = 1024;
   std::string input = "data/small.txt";
   std::string output = "output/small.txt";
+  std::string zTempFile = "temp/z.bin";
+  std::string wTempFile = "temp/w.bin";
+  std::string dTempFile = "temp/d.bin";
 
   void printUsage() {
     std::cerr
