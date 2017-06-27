@@ -2,26 +2,54 @@
 #include <fstream>
 #include <vector>
 #include <random>
+#include <unordered_map>
 #include "args.h"
 
 namespace gplda {
 
-inline std::vector<int> getTokens(const std::string& line) {
-  std::vector<int> tokens;
+std::vector<std::string> getTokenStrings(const std::string& line) {
+  std::vector<std::string> ts;
   // extract document string from MALLET format
   // split document string by whitespace
-  // add getTokenId(token) to tokens
-  // sort tokens
-  tokens.push_back(1); // TEMPORARY: add 1 so that the file compiles
-  return tokens;
+  ts.push_back(line); // TEMPORARY: add so that the file compiles
+  return ts;
 }
 
 int getTokenId(std::string& token) {
   return 1;
 }
 
-void count() {
-  // read thru data, count tokens, produce hash map used by getTokenId
+std::vector<int> getTokens(std::string& line) {
+  std::vector<int> tokens;
+  std::vector<std::string> tokenStrings = getTokenStrings(line);
+
+  for(int i = 0; i < tokenStrings.size(); ++i) { tokens.push_back(getTokenId(tokenStrings[i])); }
+
+  // add getTokenId(token) to tokens
+  // sort tokens
+  tokens.push_back(1); // TEMPORARY: add 1 so that the file compiles
+  return tokens;
+}
+
+std::unordered_map<std::string, int> count() {
+  // read thru data, count tokens, create map from token string to count
+  std::unordered_map<std::string, int> tokenCounts;
+  std::string line;
+  std::ifstream inputStream(args::input);
+  while(std::getline(inputStream, line)) {
+    std::vector<std::string> tokenStrings = getTokenStrings(line);
+    for(int i = 0; i < tokenStrings.size(); ++i) {
+      if( !tokenCounts.insert(std::make_pair(tokenStrings[i],1)).second ) {
+        ++tokenCounts[tokenStrings[i]];
+      }
+    }
+  }
+  // copy the map to a vector, sort by count
+  std::vector< std::pair<std::string, int> > tokenCountVec;
+
+  // copy the vector back to a map, replacing count with index
+  std::unordered_map<std::string, int> tokenIds;
+  return tokenIds;
 }
 
 void preprocess() {
