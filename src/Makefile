@@ -30,3 +30,11 @@ $(EXECUTABLE): $(OBJECTS)
 
 clean:
 	rm -rv $(EXECUTABLE) $(OBJECTS) $(DEPENDENCIES)
+
+# We want to exclude 3rd-party headers from being formatted
+format-all:
+	python ../tools/format.py --format --exclude-pattern '.*/include/.*'
+
+# Only format chunks that have changed
+format:
+	git diff -U0 HEAD^ | clang-format-diff -style=file -i -p1
