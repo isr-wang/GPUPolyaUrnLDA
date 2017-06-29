@@ -1,6 +1,6 @@
 OS = $(shell uname -s)
 
-NVCC			= 	nvcc
+NVCC		= 	nvcc
 FLAGS 		+= 	-std=c++11
 ifdef DEBUG
 FLAGS		+=	-ggdb -O0
@@ -9,18 +9,20 @@ FLAGS		+=	-O2
 endif
 
 LIBS 		= 	
-CFLAGS		+=	-I. -I./include $(FLAGS) -c -Wno-deprecated-gpu-targets -Wc++11-extensions
+CFLAGS		+=	-I. -I./include $(FLAGS) -c -Wno-deprecated-gpu-targets
 LDFLAGS		+=	$(FLAGS)
 
-SOURCES		= 	GPUPolyaUrnLDA.cxx LDA.cxx
-OBJECTS		= 	$(SOURCES:.cxx=.o)
+rwildcard=$(wildcard $(addsuffix $2, $1)) $(foreach d,$(wildcard $(addsuffix *, $1)),$(call rwildcard,$d/,$2)) 
+
+SOURCES		:= 	$(call rwildcard,./,*.cu)
+OBJECTS		= 	$(SOURCES:.cu=.o)
 EXECUTABLE	=	GPUPolyaUrnLDA
 
 .PHONY: all clean
 
 all: $(EXECUTABLE)
 
-%.o: %.cxx
+%.o: %.cu
 	$(NVCC) $< -o $@ $(CFLAGS)
 
 $(EXECUTABLE): $(OBJECTS)
