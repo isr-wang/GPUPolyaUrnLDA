@@ -75,7 +75,6 @@ def preprocess(input_fname, output_fname, remove_stopwords, K):
         w = sorted([token_ids[token] for token in document])
         for token in w:
             w_file.write(struct.pack('I', token))
-        print(w, d)
         w_tot += d
 
     # Close our files
