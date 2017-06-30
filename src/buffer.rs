@@ -15,17 +15,17 @@ pub struct Buffer {
 impl Buffer {
   pub fn new(size: usize) -> Buffer {
     // allocate arrays
-    let mut z = Vec::with_capacity(size).into_boxed_slice();
-    let mut w = Vec::with_capacity(size).into_boxed_slice();
-    let mut dLen = Vec::with_capacity(size).into_boxed_slice();
-    let mut dIdx = Vec::with_capacity(size).into_boxed_slice();
+    let z = Vec::with_capacity(size).into_boxed_slice();
+    let w = Vec::with_capacity(size).into_boxed_slice();
+    let dLen = Vec::with_capacity(size).into_boxed_slice();
+    let dIdx = Vec::with_capacity(size).into_boxed_slice();
     // create buffer
     let b = Buffer {
       size: size,
-      z: z.as_mut_ptr(),
-      w: w.as_mut_ptr(),
-      dLen: dLen.as_mut_ptr(),
-      dIdx: dIdx.as_mut_ptr(),
+      z: z.as_ptr(),
+      w: w.as_ptr(),
+      dLen: dLen.as_ptr(),
+      dIdx: dIdx.as_ptr(),
       nDocs: 0,
     };
     // as_mut_ptr doesn't take ownership, we need to be sure not to deallocate any arrays
