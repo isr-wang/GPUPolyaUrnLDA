@@ -1,3 +1,5 @@
+#![allow(non_snake_case)]
+
 use libc::{uint32_t, size_t};
 use std::mem;
 use std::slice;
@@ -28,7 +30,7 @@ impl Buffer {
       dIdx: dIdx.as_ptr(),
       nDocs: 0,
     };
-    // as_mut_ptr doesn't take ownership, we need to be sure not to deallocate any arrays
+    // as_ptr doesn't take ownership, we need to be sure not to deallocate any arrays
     mem::forget(z);
     mem::forget(w);
     mem::forget(dLen);
@@ -38,6 +40,7 @@ impl Buffer {
   }
 }
 
+#[allow(unused_variables)]
 impl Drop for Buffer {
   fn drop(&mut self) {
     unsafe {

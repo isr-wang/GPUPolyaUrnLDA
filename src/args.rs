@@ -1,5 +1,3 @@
-extern crate clap;
-
 pub struct Args {
   alpha: f32,
   beta: f32,

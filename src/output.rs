@@ -1,3 +1,5 @@
-pub fn output() {
-  
+use args::Args;
+
+pub fn output(args: &Args) {
+
 }

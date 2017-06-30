@@ -1,16 +1,16 @@
+extern crate clap;
+extern crate libc;
+
 mod args;
 mod preprocess;
 mod train;
 mod output;
 mod buffer;
 
-extern crate libc;
-
 fn main() {
   println!("Hello, world!");
-  args::parse();
-  preprocess::preprocess();
-  train::train();
-  output::output();
-  let b = buffer::Buffer::new(10);
+  let args = args::parse();
+  preprocess::preprocess(&args);
+  train::train(&args);
+  output::output(&args);
 }
