@@ -6,3 +6,4 @@ authors = [ "Alexander Terenin, Mans Magnusson, Kunal Sarkleh and collaborators"
 [dependencies]
 clap = "~2.19.0"
 libc = "0.2.0"
+rand = "0.3"

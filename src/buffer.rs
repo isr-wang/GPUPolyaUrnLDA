@@ -1,5 +1,3 @@
-#![allow(non_snake_case)]
-
 use libc::{uint32_t, size_t};
 use std::mem;
 use std::slice;
@@ -9,9 +7,9 @@ pub struct Buffer {
   size: size_t,
   z: *const uint32_t,
   w: *const uint32_t,
-  dLen: *const uint32_t,
-  dIdx: *const uint32_t,
-  nDocs: uint32_t,
+  d_len: *const uint32_t,
+  d_idx: *const uint32_t,
+  n_docs: uint32_t,
 }
 
 impl Buffer {
@@ -26,9 +24,9 @@ impl Buffer {
       size: size,
       z: z.as_ptr(),
       w: w.as_ptr(),
-      dLen: dLen.as_ptr(),
-      dIdx: dIdx.as_ptr(),
-      nDocs: 0,
+      d_len: dLen.as_ptr(),
+      d_idx: dIdx.as_ptr(),
+      n_docs: 0,
     };
     // as_ptr doesn't take ownership, we need to be sure not to deallocate any arrays
     mem::forget(z);
@@ -46,8 +44,8 @@ impl Drop for Buffer {
     unsafe {
       let z = slice::from_raw_parts(self.z, self.size);
       let w = slice::from_raw_parts(self.w, self.size);
-      let dLen = slice::from_raw_parts(self.dLen, self.size);
-      let dIdx = slice::from_raw_parts(self.dIdx, self.size);
+      let d_len = slice::from_raw_parts(self.d_len, self.size);
+      let d_idx = slice::from_raw_parts(self.d_idx, self.size);
       // at this point, z,w,dLen,dIdx are dropped and deallocated
     }
   }

@@ -1,11 +1,13 @@
 extern crate clap;
 extern crate libc;
+extern crate rand;
 
 mod args;
 mod preprocess;
 mod train;
 mod output;
 mod buffer;
+mod serialize;
 
 fn main() {
   println!("Hello, world!");

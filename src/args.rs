@@ -1,15 +1,15 @@
 pub struct Args {
-  alpha: f32,
-  beta: f32,
-  K: u32,
-  nMC: u32,
-  seed: u64,
-  bufferSize: i32,
-  input: String,
-  output: String,
-  zTempFile: String,
-  wTempFile: String,
-  dTempFile: String,
+  pub alpha: f32,
+  pub beta: f32,
+  pub K: u32,
+  pub nMC: u32,
+  pub seed: u64,
+  pub bufferSize: i32,
+  pub input: String,
+  pub output: String,
+  pub zTempFile: String,
+  pub wTempFile: String,
+  pub dTempFile: String,
 }
 
 pub fn parse() -> Args {
