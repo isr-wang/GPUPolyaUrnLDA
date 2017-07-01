@@ -1,10 +1,11 @@
 use args::Args;
-use serialize::as_bytes;
 use std::fs::{File, remove_file};
 use std::io::prelude::{BufRead, Write};
 use std::io::{BufReader, BufWriter};
 use rand::{sample, thread_rng};
 use rand::distributions::{Range, IndependentSample};
+use std::slice;
+use std::mem;
 
 fn get_token_id(token: &String) -> u32 {
     unimplemented!();
@@ -16,6 +17,14 @@ fn get_tokens(line: String) -> Vec<String> {
 
 fn count() {
     unimplemented!();
+}
+
+fn as_bytes<'a>(v: &'a Vec<u32>) -> &'a [u8] {
+    let s = v.as_slice();
+    unsafe {
+        slice::from_raw_parts(s.as_ptr() as *const u8,
+                              s.len() * mem::size_of::<u32>() / mem::size_of::<u8>())
+    }
 }
 
 pub fn preprocess(args: &Args) {

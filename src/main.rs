@@ -7,7 +7,6 @@ mod preprocess;
 mod train;
 mod output;
 mod buffer;
-mod serialize;
 
 fn main() {
   println!("Hello, world!");
