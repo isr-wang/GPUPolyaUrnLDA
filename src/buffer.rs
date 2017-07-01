@@ -17,22 +17,22 @@ impl Buffer {
     // allocate arrays
     let z = Vec::with_capacity(size).into_boxed_slice();
     let w = Vec::with_capacity(size).into_boxed_slice();
-    let dLen = Vec::with_capacity(size).into_boxed_slice();
-    let dIdx = Vec::with_capacity(size).into_boxed_slice();
+    let d_len = Vec::with_capacity(size).into_boxed_slice();
+    let d_idx = Vec::with_capacity(size).into_boxed_slice();
     // create buffer
     let b = Buffer {
       size: size,
       z: z.as_ptr(),
       w: w.as_ptr(),
-      d_len: dLen.as_ptr(),
-      d_idx: dIdx.as_ptr(),
+      d_len: d_len.as_ptr(),
+      d_idx: d_idx.as_ptr(),
       n_docs: 0,
     };
     // as_ptr doesn't take ownership, we need to be sure not to deallocate any arrays
     mem::forget(z);
     mem::forget(w);
-    mem::forget(dLen);
-    mem::forget(dIdx);
+    mem::forget(d_len);
+    mem::forget(d_idx);
     // return the buffer
     b
   }

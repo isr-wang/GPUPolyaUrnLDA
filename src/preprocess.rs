@@ -6,17 +6,20 @@ use rand::{sample, thread_rng};
 use rand::distributions::{Range, IndependentSample};
 use std::slice;
 use std::mem;
+use std::collections::HashMap;
 
-fn get_token_id(token: &String) -> u32 {
-    unimplemented!();
-}
 
 fn get_tokens(line: String) -> Vec<String> {
-    unimplemented!();
+    line.split("\t").skip(2).next().unwrap().split_whitespace().map(|s| s.to_string()).collect()
 }
 
-fn count() {
-    unimplemented!();
+fn count_tokens(args: &Args) -> HashMap<String, u32> {
+    let mut count: HashMap<String, u32>  = HashMap::new();
+    let input = BufReader::new(File::open(&args.input).unwrap());
+    for line in input.lines() {
+        get_tokens(line.unwrap()).iter().fold((),|_,token| *count.entry(token.clone()).or_insert(0) += 1);
+    }
+    count
 }
 
 fn as_bytes<'a>(v: &'a Vec<u32>) -> &'a [u8] {
@@ -33,7 +36,7 @@ pub fn preprocess(args: &Args) {
     remove_file(&args.wTempFile).unwrap_or_else(|_| ());
     remove_file(&args.dTempFile).unwrap_or_else(|_| ());
 
-    count();
+    let token_ids = count_tokens(&args);
 
     let input = BufReader::new(File::open(&args.input).unwrap());
     let mut z = BufWriter::new(File::create(&args.zTempFile).unwrap());
@@ -46,7 +49,7 @@ pub fn preprocess(args: &Args) {
     for line in input.lines() {
         let tokens = get_tokens(line.unwrap());
         z.write_all(as_bytes(&(0..tokens.len()).map(|_| unif.ind_sample(&mut rand)).collect())).unwrap();
-        w.write_all(as_bytes(&tokens.iter().map(|t| get_token_id(t)).collect())).unwrap();
+        w.write_all(as_bytes(&tokens.iter().map(|t| *token_ids.get(t).unwrap()).collect())).unwrap();
         d.write_all(as_bytes(&vec![tokens.len() as u32])).unwrap();
     }
 
