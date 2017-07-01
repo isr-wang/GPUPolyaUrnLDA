@@ -1,5 +1,4 @@
 .DS_Store
-/Debug/
 *.log
 *.aux
 *.pdf
@@ -7,5 +6,8 @@
 .metadata/
 .cproject
 .project
+Cargo.lock
+/Debug/
 /Release/
 /temp/
+/target/
