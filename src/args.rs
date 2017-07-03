@@ -10,6 +10,7 @@ pub struct Args {
   pub zTempFile: String,
   pub wTempFile: String,
   pub dTempFile: String,
+  pub cTempFile: String,
 }
 
 pub fn parse() -> Args {
@@ -25,5 +26,6 @@ pub fn parse() -> Args {
     zTempFile: "temp/z.bin".to_string(),
     wTempFile: "temp/w.bin".to_string(),
     dTempFile: "temp/d.bin".to_string(),
+    cTempFile: "temp/c.txt".to_string(),
   }
 }

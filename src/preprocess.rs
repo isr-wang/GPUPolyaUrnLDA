@@ -14,12 +14,20 @@ fn get_tokens(line: String) -> Vec<String> {
 }
 
 fn count_tokens(args: &Args) -> HashMap<String, u32> {
-    let mut count: HashMap<String, u32>  = HashMap::new();
+    let mut count: HashMap<String, u32> = HashMap::new();
     let input = BufReader::new(File::open(&args.input).unwrap());
     for line in input.lines() {
         get_tokens(line.unwrap()).iter().fold((),|_,token| *count.entry(token.clone()).or_insert(0) += 1);
     }
-    count
+    let mut count_vec: Vec<(String, u32)> = count.iter().map(|t| (t.0.clone(),t.1.clone())).collect();
+    count_vec.sort_by(|t1,t2| t2.1.cmp(&t1.1));
+    let mut c = BufWriter::new(File::create(&args.cTempFile).unwrap());
+    let mut token_ids: HashMap<String, u32> = HashMap::new();
+    for (idx,&(ref token,count)) in count_vec.iter().enumerate() {
+        write!(&mut c, "{}\t{}\t{}\n", token, idx, count).unwrap();
+        token_ids.insert(token.clone(), idx as u32);
+    }
+    token_ids
 }
 
 fn as_bytes<'a>(v: &'a Vec<u32>) -> &'a [u8] {
