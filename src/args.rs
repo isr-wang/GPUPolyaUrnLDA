@@ -4,7 +4,7 @@ pub struct Args {
   pub K: u32,
   pub nMC: u32,
   pub seed: u64,
-  pub bufferSize: i32,
+  pub bufferSize: usize,
   pub input: String,
   pub output: String,
   pub zTempFile: String,
