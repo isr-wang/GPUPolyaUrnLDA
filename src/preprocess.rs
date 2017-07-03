@@ -27,6 +27,7 @@ fn count_tokens(args: &Args) -> HashMap<String, u32> {
         write!(&mut c, "{}\t{}\t{}\n", token, idx, count).unwrap();
         token_ids.insert(token.clone(), idx as u32);
     }
+    c.flush().unwrap();
     token_ids
 }
 
