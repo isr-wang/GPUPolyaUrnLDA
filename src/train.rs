@@ -1,5 +1,5 @@
-use args::Args;
+use args::ARGS;
 
-pub fn train(args: &Args) {
 
+pub fn train() {
 }

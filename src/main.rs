@@ -1,6 +1,8 @@
 extern crate clap;
 extern crate libc;
 extern crate rand;
+#[macro_use]
+extern crate lazy_static;
 
 mod args;
 mod preprocess;
@@ -10,8 +12,7 @@ mod buffer;
 
 fn main() {
   println!("Hello, world!");
-  let args = args::parse();
-  preprocess::preprocess(&args);
-  train::train(&args);
-  output::output(&args);
+  preprocess::preprocess();
+  train::train();
+  output::output();
 }

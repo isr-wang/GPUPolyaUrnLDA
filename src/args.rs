@@ -13,6 +13,8 @@ pub struct Args {
   pub c_temp_file: String,
 }
 
+lazy_static! { pub static ref ARGS: Args = parse(); }
+
 pub fn parse() -> Args {
   Args {
     alpha: 0.1,

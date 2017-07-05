@@ -1,4 +1,4 @@
-use args::Args;
+use args::ARGS;
 use std::fs::{File, remove_file};
 use std::io::prelude::{BufRead, Write};
 use std::io::{Read, BufReader, BufWriter};
@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::slice;
 use std::mem;
 
-fn get_token_names(args: &Args) -> HashMap<u32, String> {
-    let c = BufReader::new(File::open(&args.c_temp_file).unwrap());
+fn get_token_names() -> HashMap<u32, String> {
+    let c = BufReader::new(File::open(&ARGS.c_temp_file).unwrap());
     let mut token_ids: HashMap<u32, String> = HashMap::new();
     for line in c.lines() {
         let split_line: Vec<String> = line.unwrap().split("\t").take(2).map(|s| s.to_string()).collect();
@@ -30,14 +30,14 @@ fn as_u32<'a>(s: &'a [u8]) -> &'a [u32] {
     }
 }
 
-pub fn output(args: &Args) {
-    remove_file(&args.output).unwrap_or_else(|_| ());
-    let token_names = get_token_names(args);
+pub fn output() {
+    remove_file(&ARGS.output).unwrap_or_else(|_| ());
+    let token_names = get_token_names();
 
-    let mut z = BufReader::new(File::open(&args.z_temp_file).unwrap());
-    let mut w = BufReader::new(File::open(&args.w_temp_file).unwrap());
-    let mut d = BufReader::new(File::open(&args.d_temp_file).unwrap());
-    let mut output = BufWriter::new(File::create(&args.output).unwrap());
+    let mut z = BufReader::new(File::open(&ARGS.z_temp_file).unwrap());
+    let mut w = BufReader::new(File::open(&ARGS.w_temp_file).unwrap());
+    let mut d = BufReader::new(File::open(&ARGS.d_temp_file).unwrap());
+    let mut output = BufWriter::new(File::create(&ARGS.output).unwrap());
 
     let mut z_bytes = z.bytes();
     let mut w_bytes = w.bytes();
