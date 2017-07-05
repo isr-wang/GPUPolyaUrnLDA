@@ -21,7 +21,7 @@ fn count_tokens(args: &Args) -> HashMap<String, u32> {
     }
     let mut count_vec: Vec<(String, u32)> = count.iter().map(|t| (t.0.clone(),t.1.clone())).collect();
     count_vec.sort_by(|t1,t2| t2.1.cmp(&t1.1));
-    let mut c = BufWriter::new(File::create(&args.cTempFile).unwrap());
+    let mut c = BufWriter::new(File::create(&args.c_temp_file).unwrap());
     let mut token_ids: HashMap<String, u32> = HashMap::new();
     for (idx,&(ref token,count)) in count_vec.iter().enumerate() {
         write!(&mut c, "{}\t{}\t{}\n", token, idx, count).unwrap();
@@ -41,16 +41,16 @@ fn as_bytes<'a>(v: &'a Vec<u32>) -> &'a [u8] {
 
 pub fn preprocess(args: &Args) {
     println!("preprocessing");
-    remove_file(&args.zTempFile).unwrap_or_else(|_| ());
-    remove_file(&args.wTempFile).unwrap_or_else(|_| ());
-    remove_file(&args.dTempFile).unwrap_or_else(|_| ());
+    remove_file(&args.z_temp_file).unwrap_or_else(|_| ());
+    remove_file(&args.w_temp_file).unwrap_or_else(|_| ());
+    remove_file(&args.d_temp_file).unwrap_or_else(|_| ());
 
     let token_ids = count_tokens(&args);
 
     let input = BufReader::new(File::open(&args.input).unwrap());
-    let mut z = BufWriter::new(File::create(&args.zTempFile).unwrap());
-    let mut w = BufWriter::new(File::create(&args.wTempFile).unwrap());
-    let mut d = BufWriter::new(File::create(&args.dTempFile).unwrap());
+    let mut z = BufWriter::new(File::create(&args.z_temp_file).unwrap());
+    let mut w = BufWriter::new(File::create(&args.w_temp_file).unwrap());
+    let mut d = BufWriter::new(File::create(&args.d_temp_file).unwrap());
 
     let mut rand = thread_rng();
     let unif = Range::new(0, args.K);
