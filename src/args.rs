@@ -1,3 +1,4 @@
+#[allow(non_snake_case)] // annoyingly, needed only for K, but has to be enabled for entire struct
 pub struct Args {
   pub alpha: f32,
   pub beta: f32,

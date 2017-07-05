@@ -34,8 +34,8 @@ pub fn output() {
     remove_file(&ARGS.output).unwrap_or_else(|_| ());
     let token_names = get_token_names();
 
-    let mut z = BufReader::new(File::open(&ARGS.z_temp_file).unwrap());
-    let mut w = BufReader::new(File::open(&ARGS.w_temp_file).unwrap());
+    let z = BufReader::new(File::open(&ARGS.z_temp_file).unwrap());
+    let w = BufReader::new(File::open(&ARGS.w_temp_file).unwrap());
     let mut d = BufReader::new(File::open(&ARGS.d_temp_file).unwrap());
     let mut output = BufWriter::new(File::create(&ARGS.output).unwrap());
 

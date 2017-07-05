@@ -3,6 +3,7 @@ use std::mem;
 use std::slice;
 
 #[repr(C)]
+#[allow(dead_code)] // remove later
 pub struct Buffer {
   size: size_t,
   z: *const uint32_t,
@@ -12,6 +13,7 @@ pub struct Buffer {
   n_docs: uint32_t,
 }
 
+#[allow(dead_code)] // remove later
 impl Buffer {
   pub fn new(size: usize) -> Buffer {
     // allocate arrays
