@@ -1,9 +1,10 @@
-use libc::{uint32_t, size_t};
+use libc::{uint32_t, size_t, c_void};
 use std::mem;
 use std::slice;
+use std::ptr;
 
-#[repr(C)]
 #[allow(dead_code)] // remove later
+#[repr(C)]
 pub struct Buffer {
   size: size_t,
   z: *const uint32_t,
@@ -11,6 +12,10 @@ pub struct Buffer {
   d_len: *const uint32_t,
   d_idx: *const uint32_t,
   n_docs: uint32_t,
+  gpu_z: *mut c_void,
+  gpu_w: *mut c_void,
+  gpu_d_len: *mut c_void,
+  gpu_d_idx: *mut c_void,
 }
 
 #[allow(dead_code)] // remove later
@@ -29,6 +34,10 @@ impl Buffer {
       d_len: d_len.as_ptr(),
       d_idx: d_idx.as_ptr(),
       n_docs: 0,
+      gpu_z: ptr::null_mut(),
+      gpu_w: ptr::null_mut(),
+      gpu_d_len: ptr::null_mut(),
+      gpu_d_idx: ptr::null_mut(),
     };
     // as_ptr doesn't take ownership, we need to be sure not to deallocate any arrays
     mem::forget(z);
