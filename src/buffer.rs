@@ -11,7 +11,7 @@ pub struct Buffer {
   w: *const uint32_t,
   d_len: *const uint32_t,
   d_idx: *const uint32_t,
-  n_docs: uint32_t,
+  n_docs: size_t,
   gpu_z: *mut c_void,
   gpu_w: *mut c_void,
   gpu_d_len: *mut c_void,

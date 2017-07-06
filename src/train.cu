@@ -28,5 +28,16 @@ void cleanup() {
 } // namespace gplda ends here
 
 int main(void) {
+  using namespace gplda;
+  Args args = {0.1,0.1,10};
+  uint32_t z[5] = {0,0,0,0,0};
+  uint32_t w[5] = {1,2,3,4,5};
+  uint32_t d_len[5] = {3,2,0,0,0};
+  uint32_t d_idx[5] = {0,3,0,0,0};
+  Buffer buffer = {5, z, w, d_len, d_idx, 2, NULL, NULL, NULL, NULL};
+  initialize(&args, &buffer, 1);
+  sample_phi();
+  sample_z(&buffer);
+  cleanup();
   return 0;
 }

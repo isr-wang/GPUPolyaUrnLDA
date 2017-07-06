@@ -12,7 +12,7 @@ struct Buffer {
   uint32_t *w;
   uint32_t *d_len;
   uint32_t *d_idx;
-  uint32_t n_docs;
+  size_t n_docs;
   uint32_t *gpu_z;
   uint32_t *gpu_w;
   uint32_t *gpu_d_len;
