@@ -1,1 +1,1 @@
-void polya_urn_sampler();
+__global__ void polya_urn_sampler();

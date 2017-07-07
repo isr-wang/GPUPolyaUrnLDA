@@ -23,7 +23,7 @@ struct Buffer {
 
 void initialize(Args *args, Buffer *buffers, size_t n_buffers);
 void sample_phi();
-void sample_z();
-void cleanup();
+void sample_z(Buffer *buffers);
+void cleanup(Buffer *buffers, size_t n_buffers);
 
 }
