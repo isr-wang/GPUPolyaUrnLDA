@@ -12,3 +12,5 @@ Cargo.lock
 /temp/
 /target/
 /output/
+.ptp-sync*
+.settings/
