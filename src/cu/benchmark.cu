@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <iostream>
+#include <cstdint>
 #include "train.h"
 #include "polyaurnsampler.h"
 #include "warpsampler.h"

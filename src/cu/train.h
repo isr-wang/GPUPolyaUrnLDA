@@ -21,9 +21,9 @@ struct Buffer {
   uint32_t *gpu_d_idx;
 };
 
-void initialize(Args *args, Buffer *buffers, size_t n_buffers);
-void sample_phi();
-void sample_z(Buffer *buffers);
-void cleanup(Buffer *buffers, size_t n_buffers);
+extern "C" void initialize(Args *args, Buffer *buffers, size_t n_buffers);
+extern "C" void sample_phi();
+extern "C" void sample_z(Buffer *buffers);
+extern "C" void cleanup(Buffer *buffers, size_t n_buffers);
 
 }
