@@ -64,3 +64,22 @@ pub fn preprocess() {
 
     z.flush().unwrap(); w.flush().unwrap(); d.flush().unwrap();
 }
+
+
+
+#[cfg(test)]
+mod preprocess_test {
+    use super::*;
+
+    #[test]
+    fn test_get_tokens() {
+        let line = String::from("docno:1	X	hi alex and Kunal\n");
+        let tokens = get_tokens(line);
+        assert_eq!(4, tokens.len());
+        assert_eq!("hi", tokens[0]);
+        assert_eq!("Kunal", tokens[3]);
+        println!("{}", tokens[0]);
+    }
+
+
+}
