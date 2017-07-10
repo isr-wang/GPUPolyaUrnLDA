@@ -1,8 +1,8 @@
 #include "train.h"
-#include "alias.h"
 #include "dlhmatrix.h"
 #include "poisson.h"
 #include "polyaurnsampler.h"
+#include "sparsealias.h"
 #include "warpsampler.h"
 
 namespace gplda {
@@ -40,6 +40,7 @@ extern "C" void cleanup(Buffer *buffers, size_t n_buffers) {
 
 extern "C" void sample_phi() {
   polya_urn_sampler<<<1,1>>>();
+  build_alias<<<1,1>>>();
 }
 
 extern "C" void sample_z(Buffer *buffer) {
