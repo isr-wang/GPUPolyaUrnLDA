@@ -1,9 +1,9 @@
 namespace gplda {
 
-class SparseAlias {
+class SpAlias {
   public:
-    SparseAlias();
-    ~SparseAlias();
+    SpAlias();
+    ~SpAlias();
 };
 
 __global__ void build_alias();

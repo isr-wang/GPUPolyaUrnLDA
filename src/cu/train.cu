@@ -2,7 +2,7 @@
 #include "dlhmatrix.h"
 #include "poisson.h"
 #include "polyaurnsampler.h"
-#include "sparsealias.h"
+#include "spalias.h"
 #include "warpsampler.h"
 
 namespace gplda {
@@ -10,7 +10,8 @@ namespace gplda {
 Args *ARGS;
 DLHMatrix *Phi;
 DLHMatrix *n;
-Poisson *pois;
+Poisson** pois;
+SpAlias** alias;
 
 extern "C" void initialize(Args *args, Buffer *buffers, size_t n_buffers) {
   ARGS = args;
@@ -22,20 +23,34 @@ extern "C" void initialize(Args *args, Buffer *buffers, size_t n_buffers) {
   }
   Phi = new DLHMatrix();
   n = new DLHMatrix();
-  pois = new Poisson();
+  pois = new Poisson*[ARGS->L];
+  for(int i = 0; i < ARGS->L; ++i) {
+    pois[i] = new Poisson();
+  }
+  alias = new SpAlias*[ARGS->K];
+  for(int i = 0; i < ARGS->K; ++i) {
+    alias[i] = new SpAlias();
+  }
 }
 
 extern "C" void cleanup(Buffer *buffers, size_t n_buffers) {
-  ARGS = NULL;
+  for(int i = 0; i < ARGS->K; ++i) {
+    delete alias[i];
+  }
+  delete[] alias;
+  for(int i = 0; i < ARGS->L; ++i) {
+    delete pois[i];
+  }
+  delete[] pois;
+  delete n;
+  delete Phi;
   for(int i = 0; i < n_buffers; ++i) {
     cudaFree(buffers[i].gpu_z);
     cudaFree(buffers[i].gpu_w);
     cudaFree(buffers[i].gpu_d_len);
     cudaFree(buffers[i].gpu_d_idx);
   }
-  delete Phi;
-  delete n;
-  delete pois;
+  ARGS = NULL;
 }
 
 extern "C" void sample_phi() {

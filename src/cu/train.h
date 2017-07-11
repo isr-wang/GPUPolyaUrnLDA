@@ -6,6 +6,7 @@ struct Args {
   float alpha;
   float beta;
   uint32_t K;
+  uint32_t L;
 };
 
 struct Buffer {
