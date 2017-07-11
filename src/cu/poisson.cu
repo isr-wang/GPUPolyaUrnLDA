@@ -3,7 +3,16 @@
 
 namespace gplda {
 
-Poisson::Poisson(uint32_t max_lambda, size_t max_value) {
+__global__ void build_poisson(float** prob, float** alias, float beta, uint32_t lambda, size_t size) {
+}
+
+__global__ void draw_poisson(float** prob, float** alias, uint32_t* lambda, size_t n) {
+}
+
+Poisson::Poisson(uint32_t ml, size_t mv) {
+  // assign class parameters
+  max_lambda = ml;
+  max_value = mv;
   // allocate array of pointers on host first, so cudaMalloc can populate it
   float** prob_host = new float*[max_lambda];
   float** alias_host = new float*[max_lambda];
@@ -21,21 +30,28 @@ Poisson::Poisson(uint32_t max_lambda, size_t max_value) {
   // deallocate array of pointers on host
   delete[] prob_host;
   delete[] alias_host;
-  // launch kernel to build Poisson alias tables
-  build_poisson<<<1,1>>>(prob, alias, ARGS->beta, max_lambda, max_value);
+  // launch kernel to build the alias tables
+  build_poisson<<<max_lambda,1>>>(prob, alias, ARGS->beta, max_lambda, max_value);
 }
 
 Poisson::~Poisson() {
-  for(int i = 0; i < 0; ++i) {
-    cudaFree(&prob[i]);
-    cudaFree(&alias[i]);
+  // allocate array of pointers on host, so we can dereference it
+  float** prob_host = new float*[max_lambda];
+  float** alias_host = new float*[max_lambda];
+  // copy array of pointers to host
+  cudaMemcpy(&prob_host, &prob, max_lambda*sizeof(float**), cudaMemcpyDeviceToHost);
+  cudaMemcpy(&alias_host, &alias, max_lambda*sizeof(float**), cudaMemcpyDeviceToHost);
+  // free the memory at the arrays being pointed to
+  for(int i = 0; i < max_value; ++i) {
+    cudaFree(&prob_host[i]);
+    cudaFree(&alias_host[i]);
   }
-}
-
-__global__ void build_poisson(float** prob, float** alias, float beta, uint32_t lambda, size_t size) {
-}
-
-__global__ void draw_poisson() {
+  // free the memory of the pointer array on device
+  cudaFree(&prob);
+  cudaFree(&alias);
+  // deallocate array of pointers on host
+  delete[] prob_host;
+  delete[] alias_host;
 }
 
 }
