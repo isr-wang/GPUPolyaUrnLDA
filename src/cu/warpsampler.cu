@@ -1,4 +1,5 @@
-#include "train.h"
+//#include "train.h"
+#include "warpsampler.h"
 
 namespace gplda {
 

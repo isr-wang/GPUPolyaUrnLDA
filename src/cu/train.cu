@@ -5,43 +5,34 @@
 #include "spalias.h"
 #include "warpsampler.h"
 
+#define POIS_MAX_LAMBDA 100
+#define POIS_MAX_VALUE 200
+
 namespace gplda {
 
-Args *ARGS;
-DLHMatrix *Phi;
-DLHMatrix *n;
-Poisson** pois;
-SpAlias** alias;
+Args* ARGS;
+DLHMatrix* Phi;
+DLHMatrix* n;
+Poisson* pois;
+SpAlias* alias;
 
-extern "C" void initialize(Args *args, Buffer *buffers, size_t n_buffers) {
+extern "C" void initialize(Args* args, Buffer* buffers, size_t n_buffers) {
   ARGS = args;
   for(int i = 0; i < n_buffers; ++i) {
-    cudaMalloc((void**)&buffers[i].gpu_z, buffers[i].size * sizeof(uint32_t));
-    cudaMalloc((void**)&buffers[i].gpu_w, buffers[i].size * sizeof(uint32_t));
-    cudaMalloc((void**)&buffers[i].gpu_d_len, buffers[i].size * sizeof(uint32_t));
-    cudaMalloc((void**)&buffers[i].gpu_d_idx, buffers[i].size * sizeof(uint32_t));
+    cudaMalloc(&buffers[i].gpu_z, buffers[i].size * sizeof(uint32_t));
+    cudaMalloc(&buffers[i].gpu_w, buffers[i].size * sizeof(uint32_t));
+    cudaMalloc(&buffers[i].gpu_d_len, buffers[i].size * sizeof(uint32_t));
+    cudaMalloc(&buffers[i].gpu_d_idx, buffers[i].size * sizeof(uint32_t));
   }
   Phi = new DLHMatrix();
   n = new DLHMatrix();
-  pois = new Poisson*[ARGS->L];
-  for(int i = 0; i < ARGS->L; ++i) {
-    pois[i] = new Poisson();
-  }
-  alias = new SpAlias*[ARGS->K];
-  for(int i = 0; i < ARGS->K; ++i) {
-    alias[i] = new SpAlias();
-  }
+  pois = new Poisson(POIS_MAX_LAMBDA, POIS_MAX_VALUE);
+  alias = new SpAlias();
 }
 
 extern "C" void cleanup(Buffer *buffers, size_t n_buffers) {
-  for(int i = 0; i < ARGS->K; ++i) {
-    delete alias[i];
-  }
-  delete[] alias;
-  for(int i = 0; i < ARGS->L; ++i) {
-    delete pois[i];
-  }
-  delete[] pois;
+  delete alias;
+  delete pois;
   delete n;
   delete Phi;
   for(int i = 0; i < n_buffers; ++i) {

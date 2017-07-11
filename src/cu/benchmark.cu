@@ -1,9 +1,7 @@
 #include <stdlib.h>
 #include <iostream>
-#include <cstdint>
+#include "stdint.h"
 #include "train.h"
-#include "polyaurnsampler.h"
-#include "warpsampler.h"
 
 int main(void) {
   gplda::Args args = {0.1,0.1,10};
