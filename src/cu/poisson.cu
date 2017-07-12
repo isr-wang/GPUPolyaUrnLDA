@@ -22,11 +22,11 @@ Poisson::Poisson(uint32_t ml, size_t mv) {
     cudaMalloc(&alias_host[i], max_value * sizeof(float));
   }
   // now, allocate array of pointers on device
-  cudaMalloc(&prob, max_lambda*sizeof(float**));
-  cudaMalloc(&alias, max_lambda*sizeof(float**));
+  cudaMalloc(&prob, max_lambda * sizeof(float**));
+  cudaMalloc(&alias, max_lambda * sizeof(float**));
   // copy array of pointers to device
-  cudaMemcpy(&prob, &prob_host, max_lambda*sizeof(float**), cudaMemcpyHostToDevice);
-  cudaMemcpy(&alias, &alias_host, max_lambda*sizeof(float**), cudaMemcpyHostToDevice);
+  cudaMemcpy(&prob, &prob_host, max_lambda * sizeof(float**), cudaMemcpyHostToDevice);
+  cudaMemcpy(&alias, &alias_host, max_lambda * sizeof(float**), cudaMemcpyHostToDevice);
   // deallocate array of pointers on host
   delete[] prob_host;
   delete[] alias_host;
@@ -39,8 +39,8 @@ Poisson::~Poisson() {
   float** prob_host = new float*[max_lambda];
   float** alias_host = new float*[max_lambda];
   // copy array of pointers to host
-  cudaMemcpy(&prob_host, &prob, max_lambda*sizeof(float**), cudaMemcpyDeviceToHost);
-  cudaMemcpy(&alias_host, &alias, max_lambda*sizeof(float**), cudaMemcpyDeviceToHost);
+  cudaMemcpy(&prob_host, &prob, max_lambda * sizeof(float**), cudaMemcpyDeviceToHost);
+  cudaMemcpy(&alias_host, &alias, max_lambda * sizeof(float**), cudaMemcpyDeviceToHost);
   // free the memory at the arrays being pointed to
   for(int i = 0; i < max_value; ++i) {
     cudaFree(&prob_host[i]);

@@ -1,12 +1,14 @@
 #include "train.h"
 #include "dlhmatrix.h"
 #include "poisson.h"
-#include "polyaurnsampler.h"
+#include "polyaurn.h"
 #include "spalias.h"
-#include "warpsampler.h"
+#include "warpsample.h"
 
 #define POIS_MAX_LAMBDA 100
 #define POIS_MAX_VALUE 200
+#define DLH_DENSE 100
+#define DLH_SPARSE 1000
 
 namespace gplda {
 
@@ -15,6 +17,7 @@ DLHMatrix* Phi;
 DLHMatrix* n;
 Poisson* pois;
 SpAlias* alias;
+float* sigma_a;
 
 extern "C" void initialize(Args* args, Buffer* buffers, size_t n_buffers) {
   ARGS = args;
@@ -45,13 +48,20 @@ extern "C" void cleanup(Buffer *buffers, size_t n_buffers) {
 }
 
 extern "C" void sample_phi() {
-  polya_urn_sampler<<<1,1>>>();
+  polya_urn_sample<<<1,1>>>();
+  polya_urn_normalize<<<1,1>>>();
+  // transpose Phi
+  polya_urn_colsums<<<1,1>>>();
   build_alias<<<1,1>>>();
 }
 
 extern "C" void sample_z(Buffer *buffer) {
   // copy memory
-  warp_sampler<<<1,1>>>(buffer->size, buffer->n_docs, buffer->gpu_z, buffer->gpu_w, buffer->gpu_d_len, buffer->gpu_d_idx);
+  warp_sample<<<1,1>>>(buffer->size, buffer->n_docs, buffer->gpu_z, buffer->gpu_w, buffer->gpu_d_len, buffer->gpu_d_idx);
+}
+
+extern "C" void sync_buffer(Buffer *buffer) {
+//  cudaStreamSynchronize(*buffer->stream);
 }
 
 }

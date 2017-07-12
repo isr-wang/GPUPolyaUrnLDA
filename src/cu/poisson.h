@@ -11,7 +11,7 @@ class Poisson {
     size_t max_value;
     float** prob;
     float** alias;
-    Poisson(uint32_t lambda_max, size_t size);
+    Poisson(uint32_t ml, size_t mv);
     ~Poisson();
 };
 

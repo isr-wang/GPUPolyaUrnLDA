@@ -205,18 +205,51 @@ Need to store the 3-tuple $(d, w_{i,d}, z_{i,d})$. This will be stored as arrays
 
 \subsection{Binary Format for $\m{n}$ and $\m\Phi$}
 
-Dense portion and lossy hash map.
+Rows of $\m\Phi$ correspond to topics. 
+Columns of $\m\Phi$ correspond to unique words.
+$\m\Phi$ is sampled in two steps by (1) drawing Poisson RVs elementwise, and (2) normalizing the rows.
+$\m\Phi$ is accessed column-wise by the warp sampler.
+
+Problem: given hash collisions, how to handle normalization? One approach: store the normalizing constant for each row of $\m\Phi$, and access it when loading nonzero elements of $\m\Phi$.
+
+Problem: we want to load the necessary column of $\m\Phi$ into shared memory. But we can't load the entire hash table.
+
+Problem: how to ensure roundoff error is not too bad? Floating point arithmetic is about 3x faster on GPUs, so we want to use it as much as possible.
+
+\subsection{Binary Format for $\v\sigma_a$}
+
+Array of floats of size $V$.
+
+\subsection{Binary Format for the Sparse Alias tables}
+
+We must store an Alias table for each unique word.
+Since the Alias tables are sparse, we cannot use the index of each cell as the value being sampled.
+Thus, we store the size of the table, and three arrays, as follows.
+\begin{itemize}
+\item[--] $\v{p}^{\v{A}^{(1)}}$: probability of landing in first Alias array.
+\item[--] $\v{A}^{(1)}$: first Alias array.
+\item[--] $\v{A}^{(2)}$: second Alias array.
+\end{itemize}
+
+Sampling is done by (1) uniformly selecting a cell $i$ in $\v{p}^{\v{A}^{(1)}}$, (2) returning $A^{(1)}_i$ with probability $p^{\v{A}^{(1)}}_i$ and $A^{(2)}_i$ otherwise. This requires 2 reads from global memory, which seems like it should be faster than copying the whole table to shared memory.
+
+Building the Alias table is done as follows. We access each column of $\m\Phi$ in parallel using multiple warps. Each warp performs a warp shuffle and determines how many non-zero elements it found. It writes this to shared memory. Then, the warps compute a cumulative sum of the values in shared memory. Using this, each warp writes its non-zero elements to shared memory, using the cumulative sum to figure out its place in the array. From here, the problem is reduced to building a dense Alias table in parallel.
+
+Problem: the size of each table is variable and will change per iteration. How much memory to allocate for each table? Should we load $\v{V}$ and use a heuristic?
 
 \subsection{Binary Format for $\m{m}$}
 
-None: $\m{m}$ is calculated on the fly in each kernel.
+This is the document-topic sufficient statistic, which is independent across documents, and is calculated on the fly in the warp sampling kernel kernel in shared memory. 
+
+Problem: we need to store it sparsely with $O(1)$ access, since a dense array won't fit in shared memory. How to do this?
+
+\subsection{Binary Format for the Poisson Alias tables}
+
+Problem: since the Sparse Alias tables are built in parallel, we might as well build these in parallel as well. How to do this?
 
 \subsection{Binary Format for $\v{V}$}
 
-We need to store $\v{V}$ for two reasons: (1) in the preprocess step, since we use PDOW format, we need the mapping token (string) $\goesto$ token id (int), and (2) in the output step, we need to print in a user-legible format, for which we need the mapping token id (int) $\goesto$ token (string).
-As token is is sorted by word rarity, we also need to compute how common each token is during preprocessing.
-Thus we need a bidirectional map.
-The simplest way to do this in STL is to store two maps: one for the forward step, one for the reverse step. Sinve $\v{V}$ is not too big, this seems like not too much of an issue.
+We need to store $\v{V}$ for three reasons: (1) in the preprocess step, since we use PDOW format, we need the mapping token (string) $\goesto$ token id (int), (2) in the output step, we need to print in a user-legible format, for which we need the mapping token id (int) $\goesto$ token (string), and (3) in training, we need to know the number of unique words.
 
 
 \end{document}

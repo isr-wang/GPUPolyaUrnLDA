@@ -12,7 +12,7 @@ struct Args {
   float alpha;
   float beta;
   uint32_t K;
-  uint32_t L;
+  uint32_t V;
 };
 
 struct Buffer {
@@ -26,6 +26,7 @@ struct Buffer {
   uint32_t* gpu_w;
   uint32_t* gpu_d_len;
   uint32_t* gpu_d_idx;
+  cudaStream_t* stream;
 };
 
 extern Args* ARGS;
@@ -38,6 +39,7 @@ extern "C" void initialize(Args* args, Buffer* buffers, size_t n_buffers);
 extern "C" void sample_phi();
 extern "C" void sample_z(Buffer* buffer);
 extern "C" void cleanup(Buffer* buffers, size_t n_buffers);
+extern "C" void sync_buffer(Buffer* buffer);
 
 }
 
