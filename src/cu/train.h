@@ -30,8 +30,8 @@ struct Buffer {
 };
 
 extern Args* ARGS;
-extern DSMatrix* Phi;
-extern DSMatrix* n;
+extern DSMatrix<float>* Phi;
+extern DSMatrix<uint32_t>* n;
 extern Poisson* pois;
 extern SpAlias* alias;
 extern float* sigma_a;

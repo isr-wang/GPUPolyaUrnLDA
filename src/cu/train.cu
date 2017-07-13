@@ -14,8 +14,8 @@
 namespace gplda {
 
 Args* ARGS;
-DSMatrix* Phi;
-DSMatrix* n;
+DSMatrix<float>* Phi;
+DSMatrix<uint32_t>* n;
 Poisson* pois;
 SpAlias* alias;
 float* sigma_a;
@@ -28,8 +28,8 @@ extern "C" void initialize(Args* args, Buffer* buffers, size_t n_buffers) {
     cudaMalloc(&buffers[i].gpu_d_len, buffers[i].size * sizeof(uint32_t)) >> GPLDA_CHECK;
     cudaMalloc(&buffers[i].gpu_d_idx, buffers[i].size * sizeof(uint32_t)) >> GPLDA_CHECK;
   }
-  Phi = new DSMatrix();
-  n = new DSMatrix();
+  Phi = new DSMatrix<float>();
+  n = new DSMatrix<uint32_t>();
   pois = new Poisson(POIS_MAX_LAMBDA, POIS_MAX_VALUE);
   alias = new SpAlias();
   cudaMalloc(&sigma_a,ARGS->V * sizeof(float)) >> GPLDA_CHECK;
