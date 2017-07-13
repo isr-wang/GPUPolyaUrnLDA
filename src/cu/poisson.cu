@@ -43,7 +43,7 @@ Poisson::~Poisson() {
   cudaMemcpy(prob_host, prob, max_lambda * sizeof(float*), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
   cudaMemcpy(alias_host, alias, max_lambda * sizeof(float*), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
   // free the memory at the arrays being pointed to
-  for(size_t i = 0; i < max_value; ++i) {
+  for(size_t i = 0; i < max_lambda; ++i) {
     cudaFree(prob_host[i]) >> GPLDA_CHECK;
     cudaFree(alias_host[i]) >> GPLDA_CHECK;
   }
