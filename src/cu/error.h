@@ -13,11 +13,11 @@ inline FileLine check_error(const char* file, int line) {
   return fl;
 }
 
-inline void operator >> (cudaError_t error, const FileLine &fl) {
-  if(error != cudaSuccess) {
+inline void operator>>(cudaError_t error, const FileLine &fl) {
+  if(error != cudaSuccess) /*{*/
     printf("CUDA error: %s %s:%d%s", cudaGetErrorString(error), fl.file, fl.line, "\n");
-    exit(error);
-  }
+    /*exit(error);*/
+  /*}*/
 }
 
 #define GPLDA_CHECK check_error(__FILE__, __LINE__)

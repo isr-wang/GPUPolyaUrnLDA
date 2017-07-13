@@ -2,7 +2,7 @@
 #define GPLDA_TRAIN_H
 
 #include "stdint.h"
-#include "dlhmatrix.h"
+#include "dsmatrix.h"
 #include "poisson.h"
 #include "spalias.h"
 
@@ -30,10 +30,11 @@ struct Buffer {
 };
 
 extern Args* ARGS;
-extern DLHMatrix* Phi;
-extern DLHMatrix* n;
+extern DSMatrix* Phi;
+extern DSMatrix* n;
 extern Poisson* pois;
 extern SpAlias* alias;
+extern float* sigma_a;
 
 extern "C" void initialize(Args* args, Buffer* buffers, size_t n_buffers);
 extern "C" void sample_phi();

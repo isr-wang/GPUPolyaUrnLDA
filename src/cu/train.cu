@@ -1,5 +1,5 @@
 #include "train.h"
-#include "dlhmatrix.h"
+#include "dsmatrix.h"
 #include "error.h"
 #include "poisson.h"
 #include "polyaurn.h"
@@ -14,8 +14,8 @@
 namespace gplda {
 
 Args* ARGS;
-DLHMatrix* Phi;
-DLHMatrix* n;
+DSMatrix* Phi;
+DSMatrix* n;
 Poisson* pois;
 SpAlias* alias;
 float* sigma_a;
@@ -28,13 +28,15 @@ extern "C" void initialize(Args* args, Buffer* buffers, size_t n_buffers) {
     cudaMalloc(&buffers[i].gpu_d_len, buffers[i].size * sizeof(uint32_t)) >> GPLDA_CHECK;
     cudaMalloc(&buffers[i].gpu_d_idx, buffers[i].size * sizeof(uint32_t)) >> GPLDA_CHECK;
   }
-  Phi = new DLHMatrix();
-  n = new DLHMatrix();
+  Phi = new DSMatrix();
+  n = new DSMatrix();
   pois = new Poisson(POIS_MAX_LAMBDA, POIS_MAX_VALUE);
   alias = new SpAlias();
+  cudaMalloc(&sigma_a,ARGS->V * sizeof(float)) >> GPLDA_CHECK;
 }
 
-extern "C" void cleanup(Buffer *buffers, size_t n_buffers) {
+extern "C" void cleanup(Buffer* buffers, size_t n_buffers) {
+  cudaFree(sigma_a) >> GPLDA_CHECK;
   delete alias;
   delete pois;
   delete n;
@@ -56,7 +58,7 @@ extern "C" void sample_phi() {
   build_alias<<<1,1>>>();
 }
 
-extern "C" void sample_z(Buffer *buffer) {
+extern "C" void sample_z(Buffer* buffer) {
   // copy memory
   warp_sample<<<1,1>>>(buffer->size, buffer->n_docs, buffer->gpu_z, buffer->gpu_w, buffer->gpu_d_len, buffer->gpu_d_idx);
 }
