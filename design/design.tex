@@ -203,10 +203,11 @@ Need to store the 3-tuple $(d, w_{i,d}, z_{i,d})$. This will be stored as arrays
 
 \end{itemize}
 
-\subsection{Binary Format for $\m{n}$ and $\m\Phi$}
+\subsection{Binary Format for $\m\Phi$}
 
 Rows of $\m\Phi$ correspond to topics. 
 Columns of $\m\Phi$ correspond to unique words.
+$\m\Phi$ is stored in floating point.
 $\m\Phi$ is sampled in two steps by (1) drawing Poisson RVs elementwise, and (2) normalizing the rows.
 $\m\Phi$ is accessed column-wise by the warp sampler.
 
@@ -215,6 +216,14 @@ Problem: given hash collisions, how to handle normalization? One approach: store
 Problem: we want to load the necessary column of $\m\Phi$ into shared memory. But we can't load the entire hash table.
 
 Problem: how to ensure roundoff error is not too bad? Floating point arithmetic is about 3x faster on GPUs, so we want to use it as much as possible.
+
+\subsection{Binary Format for $\m{n}$}
+
+Very similar to $\m\Phi$. 
+However, $\m{n}$ is stored as integers rather than floats.
+For every pass over the data, $\m{n}$ is \emph{calculated from scratch}.
+This is because (1) adding the current value is cheaper than subtracting the old one and adding the new one, especially in sparse format (2) because it means we don't need to initialize $\m{n}$, and (3) this makes a distributed implementation easier, as multiple systems can perform a distributed add.
+Thus, after sampling $\m\Phi$, we reset $\m{n}$ to a matrix of zeros, and accumulate its values atomically in the warp sampler.
 
 \subsection{Binary Format for $\v\sigma_a$}
 
