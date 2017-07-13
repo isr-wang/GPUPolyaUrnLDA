@@ -7,11 +7,11 @@ namespace gplda {
 
 class Poisson {
   public:
-    uint32_t max_lambda;
+    size_t max_lambda;
     size_t max_value;
     float** prob;
     float** alias;
-    Poisson(uint32_t ml, size_t mv);
+    Poisson(size_t ml, size_t mv);
     ~Poisson();
 };
 

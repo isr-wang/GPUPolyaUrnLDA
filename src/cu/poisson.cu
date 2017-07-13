@@ -1,15 +1,16 @@
+#include "error.h"
 #include "poisson.h"
 #include "train.h"
 
 namespace gplda {
 
-__global__ void build_poisson(float** prob, float** alias, float beta, uint32_t lambda, size_t size) {
+__global__ void build_poisson(float** prob, float** alias, float beta, size_t lambda, size_t size) {
 }
 
-__global__ void draw_poisson(float** prob, float** alias, uint32_t* lambda, size_t n) {
+__global__ void draw_poisson(float** prob, float** alias, size_t* lambda, size_t n) {
 }
 
-Poisson::Poisson(uint32_t ml, size_t mv) {
+Poisson::Poisson(size_t ml, size_t mv) {
   // assign class parameters
   max_lambda = ml;
   max_value = mv;
@@ -17,16 +18,16 @@ Poisson::Poisson(uint32_t ml, size_t mv) {
   float** prob_host = new float*[max_lambda];
   float** alias_host = new float*[max_lambda];
   // allocate each Alias table
-  for(int i = 0; i < max_lambda; ++i) {
-    cudaMalloc(&prob_host[i], max_value * sizeof(float));
-    cudaMalloc(&alias_host[i], max_value * sizeof(float));
+  for(size_t i = 0; i < max_lambda; ++i) {
+    cudaMalloc(&prob_host[i], max_value * sizeof(float)) >> GPLDA_CHECK;
+    cudaMalloc(&alias_host[i], max_value * sizeof(float)) >> GPLDA_CHECK;
   }
   // now, allocate array of pointers on device
-  cudaMalloc(&prob, max_lambda * sizeof(float**));
-  cudaMalloc(&alias, max_lambda * sizeof(float**));
+  cudaMalloc(&prob, max_lambda * sizeof(float*)) >> GPLDA_CHECK;
+  cudaMalloc(&alias, max_lambda * sizeof(float*)) >> GPLDA_CHECK;
   // copy array of pointers to device
-  cudaMemcpy(&prob, &prob_host, max_lambda * sizeof(float**), cudaMemcpyHostToDevice);
-  cudaMemcpy(&alias, &alias_host, max_lambda * sizeof(float**), cudaMemcpyHostToDevice);
+  cudaMemcpy(prob, prob_host, max_lambda * sizeof(float*), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
+  cudaMemcpy(alias, alias_host, max_lambda * sizeof(float*), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
   // deallocate array of pointers on host
   delete[] prob_host;
   delete[] alias_host;
@@ -39,16 +40,16 @@ Poisson::~Poisson() {
   float** prob_host = new float*[max_lambda];
   float** alias_host = new float*[max_lambda];
   // copy array of pointers to host
-  cudaMemcpy(&prob_host, &prob, max_lambda * sizeof(float**), cudaMemcpyDeviceToHost);
-  cudaMemcpy(&alias_host, &alias, max_lambda * sizeof(float**), cudaMemcpyDeviceToHost);
+  cudaMemcpy(prob_host, prob, max_lambda * sizeof(float*), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
+  cudaMemcpy(alias_host, alias, max_lambda * sizeof(float*), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
   // free the memory at the arrays being pointed to
-  for(int i = 0; i < max_value; ++i) {
-    cudaFree(&prob_host[i]);
-    cudaFree(&alias_host[i]);
+  for(size_t i = 0; i < max_value; ++i) {
+    cudaFree(prob_host[i]) >> GPLDA_CHECK;
+    cudaFree(alias_host[i]) >> GPLDA_CHECK;
   }
   // free the memory of the pointer array on device
-  cudaFree(&prob);
-  cudaFree(&alias);
+  cudaFree(prob) >> GPLDA_CHECK;
+  cudaFree(alias) >> GPLDA_CHECK;
   // deallocate array of pointers on host
   delete[] prob_host;
   delete[] alias_host;

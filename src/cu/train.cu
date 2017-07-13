@@ -1,5 +1,6 @@
 #include "train.h"
 #include "dlhmatrix.h"
+#include "error.h"
 #include "poisson.h"
 #include "polyaurn.h"
 #include "spalias.h"
@@ -21,11 +22,11 @@ float* sigma_a;
 
 extern "C" void initialize(Args* args, Buffer* buffers, size_t n_buffers) {
   ARGS = args;
-  for(int i = 0; i < n_buffers; ++i) {
-    cudaMalloc(&buffers[i].gpu_z, buffers[i].size * sizeof(uint32_t));
-    cudaMalloc(&buffers[i].gpu_w, buffers[i].size * sizeof(uint32_t));
-    cudaMalloc(&buffers[i].gpu_d_len, buffers[i].size * sizeof(uint32_t));
-    cudaMalloc(&buffers[i].gpu_d_idx, buffers[i].size * sizeof(uint32_t));
+  for(size_t i = 0; i < n_buffers; ++i) {
+    cudaMalloc(&buffers[i].gpu_z, buffers[i].size * sizeof(uint32_t)) >> GPLDA_CHECK;
+    cudaMalloc(&buffers[i].gpu_w, buffers[i].size * sizeof(uint32_t)) >> GPLDA_CHECK;
+    cudaMalloc(&buffers[i].gpu_d_len, buffers[i].size * sizeof(uint32_t)) >> GPLDA_CHECK;
+    cudaMalloc(&buffers[i].gpu_d_idx, buffers[i].size * sizeof(uint32_t)) >> GPLDA_CHECK;
   }
   Phi = new DLHMatrix();
   n = new DLHMatrix();
@@ -38,11 +39,11 @@ extern "C" void cleanup(Buffer *buffers, size_t n_buffers) {
   delete pois;
   delete n;
   delete Phi;
-  for(int i = 0; i < n_buffers; ++i) {
-    cudaFree(buffers[i].gpu_z);
-    cudaFree(buffers[i].gpu_w);
-    cudaFree(buffers[i].gpu_d_len);
-    cudaFree(buffers[i].gpu_d_idx);
+  for(size_t i = 0; i < n_buffers; ++i) {
+    cudaFree(buffers[i].gpu_z) >> GPLDA_CHECK;
+    cudaFree(buffers[i].gpu_w) >> GPLDA_CHECK;
+    cudaFree(buffers[i].gpu_d_len) >> GPLDA_CHECK;
+    cudaFree(buffers[i].gpu_d_idx) >> GPLDA_CHECK;
   }
   ARGS = NULL;
 }
