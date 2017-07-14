@@ -1,16 +1,49 @@
+#include "assert.h"
 #include "error.cuh"
 #include "poisson.cuh"
 #include "train.cuh"
 
 namespace gplda {
 
-__global__ void build_poisson(float** prob, float** alias, float beta, size_t lambda, size_t size) {
+__global__ void build_poisson(float** prob, float** alias, float beta, int table_size) {
+  assert(blockDim.x == 32); // for simplicity, Poisson Alias tables are built on the warp level, so exit if misconfigured
+  int lambda = blockIdx.x; // each block builds one table
+  float L = lambda + beta;
+  // populate PMF
+  for(int offset = 0; offset < table_size / blockDim.x + 1; ++offset) {
+    int i = threadIdx.x + offset * blockDim.x;
+    float x = i;
+    if(i < table_size) {
+      prob[lambda][i] = expf(x*logf(L) - L - lgammaf(x + 1));
+    }
+  }
+  __syncthreads();
+  // build array of large probabilities
+  extern __shared__ float large[];
+  __shared__ int num_large[1];
+  float cutoff = 1.0/((float) table_size);
+  // loop over PMF
+  for(int offset = 0; offset < table_size / blockDim.x + 1; ++offset) {
+    int i = threadIdx.x + offset * blockDim.x;
+    // determine which warps have large probabilities
+    unsigned int warp_large = __ballot(prob[lambda][i] > cutoff);
+    // determine how many large probabilities are in the warp's view
+    int warp_num_large = __popc(warp_large);
+    // increment the array's size
+    int large_start = atomicAdd(num_large, warp_num_large);
+    // if current warp has elements, add elements to the array
+    if(1/*warp_bit_set*/) {
+      large[large_start + 0 /*warp_bit_offset*/] = prob[lambda][i];
+    }
+  }
+  // we've now built large array, let's grab elements and place them
+
 }
 
-__global__ void draw_poisson(float** prob, float** alias, size_t* lambda, size_t n) {
+__global__ void draw_poisson(float** prob, float** alias, int* lambda, int n) {
 }
 
-Poisson::Poisson(size_t ml, size_t mv) {
+Poisson::Poisson(int ml, int mv) {
   // assign class parameters
   max_lambda = ml;
   max_value = mv;
@@ -32,7 +65,7 @@ Poisson::Poisson(size_t ml, size_t mv) {
   delete[] prob_host;
   delete[] alias_host;
   // launch kernel to build the alias tables
-  build_poisson<<<max_lambda,1>>>(prob, alias, ARGS->beta, max_lambda, max_value);
+  build_poisson<<<max_lambda,32>>>(prob, alias, ARGS->beta, max_value);
 }
 
 Poisson::~Poisson() {
