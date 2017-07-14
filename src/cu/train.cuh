@@ -2,9 +2,10 @@
 #define GPLDA_TRAIN_H
 
 #include "stdint.h"
-#include "dsmatrix.h"
-#include "poisson.h"
-#include "spalias.h"
+
+#include "dsmatrix.cuh"
+#include "poisson.cuh"
+#include "spalias.cuh"
 
 namespace gplda {
 

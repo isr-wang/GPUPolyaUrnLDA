@@ -1,6 +1,6 @@
-#include "error.h"
-#include "poisson.h"
-#include "train.h"
+#include "error.cuh"
+#include "poisson.cuh"
+#include "train.cuh"
 
 namespace gplda {
 

@@ -1,7 +1,7 @@
 #include <stdlib.h>
 #include <iostream>
 #include "stdint.h"
-#include "train.h"
+#include "train.cuh"
 
 int main(void) {
   gplda::Args args = {0.1,0.1,10,5};

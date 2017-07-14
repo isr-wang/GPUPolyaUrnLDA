@@ -1,4 +1,4 @@
-#include "polyaurn.h"
+#include "polyaurn.cuh"
 
 namespace gplda {
 

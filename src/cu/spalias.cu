@@ -1,4 +1,4 @@
-#include "spalias.h"
+#include "spalias.cuh"
 
 namespace gplda {
 

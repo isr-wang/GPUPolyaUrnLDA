@@ -1,6 +1,6 @@
-#include "dsmatrix.h"
-#include "error.h"
-#include "train.h"
+#include "dsmatrix.cuh"
+#include "error.cuh"
+#include "train.cuh"
 
 namespace gplda {
 

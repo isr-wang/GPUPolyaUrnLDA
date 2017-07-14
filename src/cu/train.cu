@@ -1,10 +1,12 @@
-#include "train.h"
-#include "dsmatrix.h"
-#include "error.h"
-#include "poisson.h"
-#include "polyaurn.h"
-#include "spalias.h"
-#include "warpsample.h"
+#include "stdint.h"
+
+#include "train.cuh"
+#include "dsmatrix.cuh"
+#include "error.cuh"
+#include "poisson.cuh"
+#include "polyaurn.cuh"
+#include "spalias.cuh"
+#include "warpsample.cuh"
 
 #define POIS_MAX_LAMBDA 100
 #define POIS_MAX_VALUE 200

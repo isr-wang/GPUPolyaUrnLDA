@@ -252,6 +252,8 @@ This is the document-topic sufficient statistic, which is independent across doc
 
 Problem: we need to store it sparsely with $O(1)$ access, since a dense array won't fit in shared memory. How to do this?
 
+Problem: we need to update $\m{m}$ after sampling each token.
+
 \subsection{Binary Format for the Poisson Alias tables}
 
 Problem: since the Sparse Alias tables are built in parallel, we might as well build these in parallel as well. How to do this?
@@ -259,6 +261,25 @@ Problem: since the Sparse Alias tables are built in parallel, we might as well b
 \subsection{Binary Format for $\v{V}$}
 
 We need to store $\v{V}$ for three reasons: (1) in the preprocess step, since we use PDOW format, we need the mapping token (string) $\goesto$ token id (int), (2) in the output step, we need to print in a user-legible format, for which we need the mapping token id (int) $\goesto$ token (string), and (3) in training, we need to know the number of unique words.
+
+\section{Parallel Alias table construction}
+
+Input: array $\v{p}$ of size $K$ representing a dense probability vector.
+
+Output: arrays $\v{p}^{\v{A}}$ and $\v{A}$ representing a dense Alias table.
+
+\begin{enumerate}
+\item Build an array $\v{p}^+$ consisting of all $p_i > 1/K$, and an array $\v{I}^+$ of their indices.
+\item Build an array $\v{n}^+ = \lceil \v{p}^+ / 2 \rceil$.
+\item Build an array $\v{p}^{[1,2]}$ consisting of $\v{p}^+ / \v{n}^+$ with each element repeated $\v{n}^+$ times. Notice that $\v{p}^{[1,2]} \in [1,2]^K$. Also build an array $\v{I}^{[1,2]}$ of their indices.
+\item For each thread, grab an element from $\v{p}^{[1,2]}$, and loop over a subset $\v{p}$. Let $i$ be the index of $\v{p}$, and let $j$ be the thread index.
+\begin{enumerate}
+\item If $p_i < 1/K$, set $A_i = I^{[1,2]}_j$ and $p^{[1,2]}_j = p^{[1,2]}_j - p_i$ in parallel.
+\item Perform a warp shuffle reduce to ensure $1 < p^{[1,2]}_j < 2$ for all threads. If this cannot be done, set $p_j = p^{[1,2]}_j$ and remove from $\v{p}^{[1,2]}$.
+\item Repeat until $\v{p}^{[1,2]}$ is empty on the warp, or until the end of the subset of $\v{p}$. If exiting early, write the iteration number to shared memory. If exiting late, grab a new index from shared memory and iterate.
+\end{enumerate}
+\item Once the loop is complete, each warp with remaining $\v{p}^{[1,2]}$ iterates over $\v{I}^{[1,2]}$. The warps perform a block allreduce to determine their subset. The process repeats until $\v{p}^{[1,2]}$ is empty.
+\end{enumerate}
 
 
 \end{document}

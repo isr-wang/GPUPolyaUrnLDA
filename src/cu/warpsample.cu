@@ -1,4 +1,4 @@
-#include "warpsample.h"
+#include "warpsample.cuh"
 
 namespace gplda {
 
