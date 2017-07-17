@@ -5,6 +5,15 @@
 
 namespace gplda {
 
+
+__device__ __forceinline__ unsigned int lane_id_bits(int thread_idx) {
+  return ((unsigned int) 1) << (thread_idx % warpSize);
+}
+
+__device__ __forceinline__ unsigned int lane_offset(unsigned int lane_bits, int thread_idx) {
+  return __popc((~(((unsigned int) 4294967295) << (thread_idx % warpSize))) & lane_bits);
+}
+
 __global__ void build_poisson(float** prob, float** alias, float beta, int table_size) {
   assert(blockDim.x == 32); // for simplicity, Poisson Alias tables are built on the warp level, so exit if misconfigured
   int lambda = blockIdx.x; // each block builds one table
@@ -19,26 +28,37 @@ __global__ void build_poisson(float** prob, float** alias, float beta, int table
   }
   __syncthreads();
   // build array of large probabilities
-  extern __shared__ float large[];
+  /*extern*/ __shared__ float large[200];
   __shared__ int num_large[1];
+  if(threadIdx.x == 0) {
+    num_large[0] = 0;
+  }
   float cutoff = 1.0/((float) table_size);
   // loop over PMF
   for(int offset = 0; offset < table_size / blockDim.x + 1; ++offset) {
     int i = threadIdx.x + offset * blockDim.x;
-    // determine which warps have large probabilities
-    unsigned int warp_large = __ballot(prob[lambda][i] > cutoff);
-    // determine how many large probabilities are in the warp's view
-    int warp_num_large = __popc(warp_large);
-    // increment the array's size
-    int large_start = atomicAdd(num_large, warp_num_large);
-    // if current warp has elements, add elements to the array
-    if(1/*warp_bit_set*/) {
-      large[large_start + 0 /*warp_bit_offset*/] = prob[lambda][i];
+    if(i < table_size) {
+      // determine which warps have large probabilities
+      float thread_prob = prob[lambda][i];
+      unsigned int warp_large = __ballot(thread_prob >= cutoff);
+      // determine how many large probabilities are in the warp's view
+      int warp_num_large = __popc(warp_large);
+      // increment the array's size, only once per warp, then broadcast to all lanes in the warp
+      int large_start;
+      if(threadIdx.x % warpSize == 0) {
+        large_start = atomicAdd(num_large, warp_num_large);
+      }
+      large_start = __shfl(large_start, 0);
+      // if current warp has elements, add elements to the array
+      if(thread_prob >= cutoff) {
+        large[large_start + lane_offset(warp_large, threadIdx.x)] = thread_prob;
+      }
     }
   }
-  // we've now built large array, let's grab elements and place them
-
+  __syncthreads();
+  // we've built large array, let's grab elements and place them
 }
+
 
 __global__ void draw_poisson(float** prob, float** alias, int* lambda, int n) {
 }
@@ -65,7 +85,8 @@ Poisson::Poisson(int ml, int mv) {
   delete[] prob_host;
   delete[] alias_host;
   // launch kernel to build the alias tables
-  build_poisson<<<max_lambda,32>>>(prob, alias, ARGS->beta, max_value);
+  build_poisson<<<max_lambda,32,max_value*sizeof(int)>>>(prob, alias, ARGS->beta, max_value);
+  cudaDeviceSynchronize();
 }
 
 Poisson::~Poisson() {
