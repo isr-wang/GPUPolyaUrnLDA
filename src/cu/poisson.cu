@@ -6,11 +6,11 @@
 namespace gplda {
 
 
-__device__ __forceinline__ unsigned int lane_id_bits(int thread_idx) {
+__device__ __forceinline__ unsigned int warp_lane_id_bits(int thread_idx) {
   return ((unsigned int) 1) << (thread_idx % warpSize);
 }
 
-__device__ __forceinline__ unsigned int lane_offset(unsigned int lane_bits, int thread_idx) {
+__device__ __forceinline__ unsigned int warp_lane_offset(unsigned int lane_bits, int thread_idx) {
   return __popc((~(((unsigned int) 4294967295) << (thread_idx % warpSize))) & lane_bits);
 }
 
@@ -52,7 +52,7 @@ __global__ void build_poisson(float** prob, float** alias, float beta, int table
       warp_large_start = __shfl(warp_large_start, 0);
       // if current warp has elements, add elements to the array
       if(thread_prob >= cutoff) {
-        large[warp_large_start + lane_offset(warp_large_bits, threadIdx.x)] = i;
+        large[warp_large_start + warp_lane_offset(warp_large_bits, threadIdx.x)] = i;
       }
     }
   }

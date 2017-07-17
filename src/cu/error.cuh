@@ -3,15 +3,13 @@
 
 #include <cstdio>
 
+namespace gplda {
+
 struct FileLine {
     const char* file;
     int line;
+    FileLine(const char* f, int l) : file(f), line(l) {}
 };
-
-inline FileLine check_error(const char* file, int line) {
-  FileLine fl = {file, line};
-  return fl;
-}
 
 inline void operator>>(cudaError_t error, const FileLine &fl) {
   if(error != cudaSuccess) /*{*/
@@ -20,6 +18,8 @@ inline void operator>>(cudaError_t error, const FileLine &fl) {
   /*}*/
 }
 
-#define GPLDA_CHECK check_error(__FILE__, __LINE__)
+}
+
+#define GPLDA_CHECK FileLine(__FILE__, __LINE__)
 
 #endif
