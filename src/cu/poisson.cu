@@ -14,10 +14,23 @@ __device__ __forceinline__ unsigned int warp_lane_offset(unsigned int lane_bits,
   return __popc((~(((unsigned int) 4294967295) << (thread_idx % warpSize))) & lane_bits);
 }
 
+__device__ __forceinline__ int queue_pop(int* queue, int* start, int* end) {
+  return 1;
+}
+
+__device__ __forceinline__ void queue_push(int value, int* queue, int* start, int* end) {
+  return;
+}
+
 __global__ void build_poisson(float** prob, float** alias, float beta, int table_size) {
-//  assert(blockDim.x == 32); // for simplicity, Poisson Alias tables are built on the warp level, so exit if misconfigured
+  assert(blockDim.x % 32 == 0); // kernel will fail if warpSize != 32
+  int warp_idx = threadIdx.x / warpSize;
+  int num_warps = blockDim.x / warpSize + 1;
+  int lane_idx = threadIdx.x % warpSize;
+  // determine constants
   int lambda = blockIdx.x; // each block builds one table
   float L = lambda + beta;
+  float cutoff = 1.0/((float) table_size);
   // populate PMF
   for(int offset = 0; offset < table_size / blockDim.x + 1; ++offset) {
     int i = threadIdx.x + offset * blockDim.x;
@@ -27,57 +40,95 @@ __global__ void build_poisson(float** prob, float** alias, float beta, int table
     }
   }
   __syncthreads();
-  // build array of large probabilities
+  // initialize stack and queue
   /*extern*/ __shared__ int large[200];
-  __shared__ int num_large[1];
+  __shared__ int large_start[1];
+  __shared__ int large_end[1];
+  /*extern*/ __shared__ int small[200];
+  __shared__ int small_start[1];
+  __shared__ int small_end[1];
   if(threadIdx.x == 0) {
-    num_large[0] = 0;
+    large_start[0] = 0;
+    large_end[0] = 0;
+    small_start[0] = 0;
+    small_end[0] = 0;
   }
   __syncthreads();
-  float cutoff = 1.0/((float) table_size);
-  // loop over PMF
+  // loop over PMF, build large queue
   for(int offset = 0; offset < table_size / blockDim.x + 1; ++offset) {
     int i = threadIdx.x + offset * blockDim.x;
     if(i < table_size) {
       float thread_prob = prob[lambda][i];
       // determine which threads have large probabilities
       unsigned int warp_large_bits = __ballot(thread_prob >= cutoff);
+      unsigned int warp_small_bits = ~warp_large_bits;
       // determine how many large probabilities are in the warp's view
       int warp_num_large = __popc(warp_large_bits);
+      int warp_num_small = __popc(warp_small_bits);
       // increment the array's size, only once per warp, then broadcast to all lanes in the warp
       int warp_large_start;
-      if(threadIdx.x % warpSize == 0) {
-        warp_large_start = atomicAdd(num_large, warp_num_large);
+      int warp_small_start;
+      if(lane_idx == 0) {
+        warp_large_start = atomicAdd(large_end, warp_num_large);
+        warp_small_start = atomicAdd(small_end, warp_num_small);
       }
       warp_large_start = __shfl(warp_large_start, 0);
+      warp_small_start = __shfl(warp_small_start, 0);
       // if current warp has elements, add elements to the array
       if(thread_prob >= cutoff) {
         large[warp_large_start + warp_lane_offset(warp_large_bits, threadIdx.x)] = i;
+      } else {
+        small[warp_small_start + warp_lane_offset(warp_small_bits, threadIdx.x)] = i;
       }
     }
   }
   __syncthreads();
-  // grab a set of indices from large array for the warp to work on
-
-  // loop over each warp's range
-
-    // try to place probabilities into current window
-
-    // place any small probabilities into slots and small index array, grab new probability
-
-    // if large stack empty, perform a warp rebalance
-
-    // if large stack empty and cannot rebalance, write current index to window stack
-
+  // grab a set of indices from large stack for the thread to work on
+  int thread_large_idx = -1; /* flag value: -1 means empty */
+  float thread_large_prob;
+  while(true) {
+    // if needed, grab indices from large stack for the warp to work on
+    if(thread_large_idx < 0) {
+      // try to grab an index
+      thread_large_idx = queue_pop(large, large_start, large_end);
+      // if got an index, get its value
+      if(thread_large_idx >= 0) {
+        thread_large_prob = prob[lambda][thread_large_idx];
+      }
+    }
+    // if holding a large index, try to fill a small index
+    if(thread_large_idx >= 0) {
+      // try to grab an index from small queue
+      int thread_small_idx = queue_pop(small, small_start, small_end);
+      // if got an index, fill it
+      if(thread_small_idx >= 0) {
+        float thread_small_prob = prob[lambda][thread_small_idx];
+        thread_large_prob = (thread_large_prob + thread_small_prob) - 1.0;
+        alias[lambda][thread_small_idx] = thread_large_idx;
+        // check if large probability became small
+        if(thread_large_prob < cutoff) {
+          // make prob small
+          prob[lambda][thread_large_idx] = thread_large_prob;
+          // add to small queue
+          queue_push(thread_large_idx, small, small_start, small_end);
+          thread_large_idx = -1;
+        }
+      } else {
+        // if small queue is empty, push value back onto large stack, and exit
+        queue_push(thread_large_idx, large, large_start, large_end);
+        thread_large_idx = -1;
+        break;
+      }
+    } else {
+      // large stack is empty, exit
+      break;
+    }
+  }
   __syncthreads();
-  // if still holding indices, grab an index from window stack and iterate over that
+  // at this point, both stacks should now be small, so finish them using one warp
+  if(warp_idx == 0) {
 
-
-  __syncthreads();
-  // if window stack empty, grab a set of elements from small stack and iterate over that
-
-  __syncthreads();
-  // at this point, all remaining slots must have probability 1
+  }
 }
 
 
@@ -106,7 +157,7 @@ Poisson::Poisson(int ml, int mv) {
   delete[] prob_host;
   delete[] alias_host;
   // launch kernel to build the alias tables
-  build_poisson<<<max_lambda,64/*32*/,max_value*sizeof(int)>>>(prob, alias, ARGS->beta, max_value);
+  build_poisson<<<max_lambda,96/*32*/,max_value*sizeof(int)>>>(prob, alias, ARGS->beta, max_value);
   cudaDeviceSynchronize();
 }
 
