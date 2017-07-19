@@ -40,7 +40,8 @@ __global__ void build_poisson(float** prob, float** alias, float beta, int table
     }
   }
   __syncthreads();
-  // initialize stack and queue
+  // initialize queues
+  __shared__ int num_active_warps[1];
   /*extern*/ __shared__ int large[200];
   __shared__ int large_start[1];
   __shared__ int large_end[1];
@@ -48,6 +49,7 @@ __global__ void build_poisson(float** prob, float** alias, float beta, int table
   __shared__ int small_start[1];
   __shared__ int small_end[1];
   if(threadIdx.x == 0) {
+    num_active_warps[0] = num_warps;
     large_start[0] = 0;
     large_end[0] = 0;
     small_start[0] = 0;
@@ -83,11 +85,11 @@ __global__ void build_poisson(float** prob, float** alias, float beta, int table
     }
   }
   __syncthreads();
-  // grab a set of indices from large stack for the thread to work on
+  // grab a set of indices from large queue for the thread to work on
   int thread_large_idx = -1; /* flag value: -1 means empty */
   float thread_large_prob;
   while(true) {
-    // if needed, grab indices from large stack for the warp to work on
+    // if needed, grab indices from large queue for the warp to work on
     if(thread_large_idx < 0) {
       // try to grab an index
       thread_large_idx = queue_pop(large, large_start, large_end);
@@ -114,20 +116,23 @@ __global__ void build_poisson(float** prob, float** alias, float beta, int table
           thread_large_idx = -1;
         }
       } else {
-        // if small queue is empty, push value back onto large stack, and exit
+        // if small queue is empty, push value back onto large queue, and exit
         queue_push(thread_large_idx, large, large_start, large_end);
         thread_large_idx = -1;
         break;
       }
     } else {
-      // large stack is empty, exit
+      // large queue is empty, exit
       break;
     }
   }
-  __syncthreads();
-  // at this point, both stacks should now be small, so finish them using one warp
-  if(warp_idx == 0) {
-
+  // at this point, both queues should now be near empty, so finish them using one warp
+  if(warp_idx != 0) {
+    atomicSub(num_active_warps, 1);
+    return;
+  } else {
+    do {/*wait*/} while(num_active_warps[0] > 1);
+    printf("Finishing remaining values");
   }
 }
 
@@ -157,7 +162,7 @@ Poisson::Poisson(int ml, int mv) {
   delete[] prob_host;
   delete[] alias_host;
   // launch kernel to build the alias tables
-  build_poisson<<<max_lambda,96/*32*/,max_value*sizeof(int)>>>(prob, alias, ARGS->beta, max_value);
+  build_poisson<<</*max_lambda*/1,96/*32*/,max_value*sizeof(int)>>>(prob, alias, ARGS->beta, max_value);
   cudaDeviceSynchronize();
 }
 
