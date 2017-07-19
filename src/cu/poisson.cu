@@ -58,7 +58,7 @@ __device__ __forceinline__ void warp_queue_pair_push(int value, int conditional,
   if(threadIdx.x % 32 == 0) {
     // need to do a CAS, otherwise another thread may increment before writing is finished
     do {} while(atomicCAS(q1_read_end, warp_q1_start, warp_q1_start + warp_num_q1) != warp_q1_start);
-    do {} while(atomicCAS(q1_read_end, warp_q2_start, warp_q2_start + warp_num_q2) != warp_q2_start);
+    do {} while(atomicCAS(q2_read_end, warp_q2_start, warp_q2_start + warp_num_q2) != warp_q2_start);
   }
 }
 
