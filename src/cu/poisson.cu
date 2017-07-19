@@ -61,7 +61,7 @@ __global__ void build_poisson(float** prob, float** alias, float beta, int table
       float thread_prob = prob[lambda][i];
       // determine which threads have large probabilities
       unsigned int warp_large_bits = __ballot(thread_prob >= cutoff);
-      unsigned int warp_small_bits = ~warp_large_bits;
+      unsigned int warp_small_bits = __ballot(thread_prob < cutoff); // don't negate: some threads may be inactive
       // determine how many large probabilities are in the warp's view
       int warp_num_large = __popc(warp_large_bits);
       int warp_num_small = __popc(warp_small_bits);
