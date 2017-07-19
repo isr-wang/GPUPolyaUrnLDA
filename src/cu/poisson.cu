@@ -5,11 +5,6 @@
 
 namespace gplda {
 
-
-__device__ __forceinline__ unsigned int warp_lane_id_bits(int lane_idx) {
-  return ((unsigned int) 1) << lane_idx;
-}
-
 __device__ __forceinline__ unsigned int warp_lane_offset(unsigned int lane_bits) {
   return __popc((~(((unsigned int) 4294967295) << (threadIdx.x % 32))) & lane_bits);
 }
@@ -18,7 +13,7 @@ __device__ __forceinline__ int queue_wraparound(int idx) {
   return idx;
 }
 
-__device__ __forceinline__ void warp_queue_pair_push(int value, int conditional, int* q1, int* q2, int* q1_end, int* q2_end) {
+__device__ __forceinline__ void warp_queue_pair_push(int value, int conditional, int* q1, int* q1_read_end, int* q1_write_end, int* q2, int* q2_read_end, int* q2_write_end) {
   // determine which threads write to which queue
   unsigned int warp_q1_bits = __ballot(conditional);
   unsigned int warp_q2_bits = __ballot(~conditional); // note: some threads may be inactive
@@ -29,8 +24,8 @@ __device__ __forceinline__ void warp_queue_pair_push(int value, int conditional,
   int warp_q1_start;
   int warp_q2_start;
   if(threadIdx.x % 32 == 0) {
-    warp_q1_start = atomicAdd(q1_end, warp_num_q1);
-    warp_q2_start = atomicAdd(q2_end, warp_num_q2);
+    warp_q1_start = atomicAdd(q1_write_end, warp_num_q1);
+    warp_q2_start = atomicAdd(q2_write_end, warp_num_q2);
   }
   warp_q1_start = __shfl(warp_q1_start, 0);
   warp_q2_start = __shfl(warp_q2_start, 0);
@@ -46,15 +41,19 @@ __device__ __forceinline__ void warp_queue_pair_push(int value, int conditional,
   }
   // write elements to both queues
   write_queue[queue_wraparound(write_idx)] = value;
+  // increment the number of elements that may be read from the queue
+  if(threadIdx.x % 32 == 0) {
+    // need to do a CAS, otherwise another thread may increment before writing is finished
+    do {} while(atomicCAS(q1_read_end, warp_q1_start, warp_q1_start + warp_num_q1) != warp_q1_start);
+    do {} while(atomicCAS(q1_read_end, warp_q2_start, warp_q2_start + warp_num_q2) != warp_q2_start);
+  }
 }
 
-__device__ __forceinline__ int warp_queue_pair_pop(int& size, int* start, int* end1, int* end2) {
+__device__ __forceinline__ int warp_queue_pair_pop(int* size, int* start, int* end1, int* end2) {
   return 1;
 }
 
 __global__ void build_poisson(float** prob, float** alias, float beta, int table_size) {
-  assert(blockDim.x % 32 == 0); // kernel will fail if warpSize != 32
-  int warp_idx = threadIdx.x / warpSize;
   int num_warps = blockDim.x / warpSize + 1;
   int lane_idx = threadIdx.x % warpSize;
   // determine constants
@@ -74,14 +73,18 @@ __global__ void build_poisson(float** prob, float** alias, float beta, int table
   __shared__ int num_active_warps[1];
   __shared__ int queue_pair_start[1];
   /*extern*/ __shared__ int large[200];
-  __shared__ int large_end[1];
+  __shared__ int large_read_end[1];
+  __shared__ int large_write_end[1];
   /*extern*/ __shared__ int small[200];
-  __shared__ int small_end[1];
+  __shared__ int small_read_end[1];
+  __shared__ int small_write_end[1];
   if(threadIdx.x == 0) {
     num_active_warps[0] = num_warps;
     queue_pair_start[0] = 0;
-    large_end[0] = 0;
-    small_end[0] = 0;
+    large_read_end[0] = 0;
+    small_read_end[0] = 0;
+    large_write_end[0] = 0;
+    small_write_end[0] = 0;
   }
   __syncthreads();
   // loop over PMF, build large queue
@@ -89,15 +92,15 @@ __global__ void build_poisson(float** prob, float** alias, float beta, int table
     int i = threadIdx.x + offset * blockDim.x;
     if(i < table_size) {
       float thread_prob = prob[lambda][i];
-      warp_queue_pair_push(i, thread_prob >= cutoff, large, large_end, small, small_end);
+      warp_queue_pair_push(i, thread_prob >= cutoff, large, large_read_end, large_write_end, small, small_read_end, small_write_end);
     }
   }
 
   // grab a set of indices from both queues for the warp to work on
   for(int warp_num_elements = warpSize; warp_num_elements > 0; /*no increment*/) {
     // try to grab an index, determine how many were grabbed
-    warp_num_elements = warpSize;
-    int warp_queue_idx = warp_queue_pair_pop(warp_num_elements, queue_pair_start, large_end, small_end);
+    warp_num_elements = warpSize; /*may by mutated by warp_queue_pair_pop*/
+    int warp_queue_idx = warp_queue_pair_pop(&warp_num_elements, queue_pair_start, large_read_end, small_read_end);
     // if got an index, fill it
     if(lane_idx < warp_num_elements) {
       int thread_large_idx = large[queue_wraparound(warp_queue_idx + lane_idx)];
@@ -112,10 +115,10 @@ __global__ void build_poisson(float** prob, float** alias, float beta, int table
         prob[lambda][thread_large_idx] = thread_large_prob;
       }
       // finally, push remaining values back onto queues
-      warp_queue_pair_push(thread_large_idx, thread_large_prob >= cutoff, large, large_end, small, small_end);
+      warp_queue_pair_push(thread_large_idx, thread_large_prob >= cutoff, large, large_read_end, large_write_end, small, small_read_end, small_write_end);
     }
   }
-  // at this point, both queues should now be near empty, so finish them using one warp
+  // at this point, one of the queues must be empty, so finish remaining values using slowest warp
   if(atomicSub(num_active_warps, 1) == 1) {
     printf("Finishing remaining values");
   }
