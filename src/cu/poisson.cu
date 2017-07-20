@@ -21,7 +21,7 @@ __device__ __forceinline__ unsigned int warp_lane_offset(unsigned int lane_bits)
 }
 
 __device__ __forceinline__ unsigned int queue_wraparound(unsigned int idx, unsigned int queue_size) {
-  return idx&(queue_size - 1);
+  return idx & (queue_size - 1);
 }
 
 __device__ __forceinline__ void warp_queue_pair_push(int value, int conditional, unsigned int queue_size,
@@ -211,8 +211,9 @@ Poisson::Poisson(int ml, int mv) {
   delete[] alias_host;
   // launch kernel to build the alias tables
   build_poisson_prob<<<max_lambda,96>>>(prob, alias, ARGS->beta, max_value);
+  cudaDeviceSynchronize() >> GPLDA_CHECK;
   build_poisson<<<max_lambda,32,2*next_pow2(max_value)*sizeof(int)>>>(prob, alias, max_value);
-  cudaDeviceSynchronize();
+  cudaDeviceSynchronize() >> GPLDA_CHECK;
 }
 
 Poisson::~Poisson() {
