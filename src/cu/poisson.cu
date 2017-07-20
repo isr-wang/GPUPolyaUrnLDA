@@ -5,7 +5,7 @@
 
 namespace gplda {
 
-__device__ __forceinline__ unsigned int dev_next_pow2(unsigned int x) {
+__host__ __device__ __forceinline__ unsigned int next_pow2(unsigned int x) {
   x--;
   x |= x >> 1;
   x |= x >> 2;
@@ -64,16 +64,23 @@ __device__ __forceinline__ void warp_queue_pair_push(int value, int conditional,
 
 __device__ __forceinline__ int warp_queue_pair_pop(/*mut*/ int* size, unsigned int queue_size,
     unsigned int* start, unsigned int* end1, unsigned int* end2) {
-  // first, peek at end1 and end2 to determine how many elements to try to read
-  int end = min(atomicAdd(end1,0), atomicAdd(end2,0));
-  // don't read more than warpSize elements
-  int read_start = atomicAdd(start,0);
-  int read_size = min(warpSize, end - read_start);
-  // try to read and increment index of elements
-  int read_success = atomicCAS(start, read_start, read_start + read_size) == read_start;
-  read_size = read_success ? read_size : 0;
-  // mutate size to indicate how many were actually read
-  *size = read_size;
+  int read_start;
+  int read_size;
+  // read the queue once per warp
+  if(threadIdx.x % warpSize == 0) {
+    // first, peek at end1 and end2 to determine how many elements to try to read
+    int end = min(atomicAdd(end1,0), atomicAdd(end2,0));
+    // don't read more than warpSize elements
+    read_start = atomicAdd(start,0);
+    read_size = min(warpSize, end - read_start);
+    // try to read and increment index of elements
+    int read_success = atomicCAS(start, read_start, read_start + read_size) == read_start;
+    read_size = read_success ? read_size : 0;
+    // mutate size to indicate how many were actually read
+  }
+  // broadcast variables to all threads, mutate size to amount read by thread 0
+  read_start = __shfl(read_start, 0);
+  *size = __shfl(read_size, 0);
   // return start index
   return read_start;
 }
@@ -84,18 +91,19 @@ __global__ void build_poisson(float** prob, float** alias, float beta, int table
   // determine constants
   int lambda = blockIdx.x; // each block builds one table
   float L = lambda + beta;
-  float cutoff = 1.0/((float) table_size);
+  float cutoff = 1.0f/((float) table_size);
   // populate PMF
   for(int offset = 0; offset < table_size / blockDim.x + 1; ++offset) {
     int i = threadIdx.x + offset * blockDim.x;
     float x = i;
     if(i < table_size) {
       prob[lambda][i] = expf(x*logf(L) - L - lgammaf(x + 1));
+      alias[lambda][i] = -1.0f;
     }
   }
   __syncthreads();
   // initialize queues
-  unsigned int queue_size = dev_next_pow2(table_size);
+  unsigned int queue_size = next_pow2(table_size);
   extern __shared__ int shared_memory[];
   __shared__ int num_active_warps[1];
   __shared__ unsigned int queue_pair_start[1];
@@ -134,13 +142,10 @@ __global__ void build_poisson(float** prob, float** alias, float beta, int table
       float thread_large_prob = prob[lambda][thread_large_idx];
       int thread_small_idx = small[queue_wraparound(warp_queue_idx + lane_idx,queue_size)];
       float thread_small_prob = prob[lambda][thread_small_idx];
-      // determine new probability and fill the index
-      thread_large_prob = (thread_large_prob + thread_small_prob) - 1.0;
-      alias[lambda][thread_small_idx] = thread_large_idx;
-      // if large prob became small, write it to its corresponding slot
-      if(thread_large_prob < cutoff) {
-        prob[lambda][thread_large_idx] = thread_large_prob;
-      }
+      // determine new, smaller probability and fill the index
+      thread_large_prob = (thread_large_prob + thread_small_prob) - cutoff;
+      alias[lambda][thread_small_idx] = (float) thread_large_idx;
+      prob[lambda][thread_large_idx] = thread_large_prob;
       // finally, push remaining values back onto queues
       warp_queue_pair_push(thread_large_idx, thread_large_prob >= cutoff, queue_size, large, large_read_end, large_write_end, small, small_read_end, small_write_end);
     }
@@ -154,17 +159,6 @@ __global__ void build_poisson(float** prob, float** alias, float beta, int table
 
 
 __global__ void draw_poisson(float** prob, float** alias, int* lambda, int n) {
-}
-
-inline int next_pow2(int x) {
-  x--;
-  x |= x >> 1;
-  x |= x >> 2;
-  x |= x >> 4;
-  x |= x >> 8;
-  x |= x >> 16;
-  x++;
-  return(x);
 }
 
 Poisson::Poisson(int ml, int mv) {
