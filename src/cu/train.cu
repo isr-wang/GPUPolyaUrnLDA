@@ -57,7 +57,7 @@ extern "C" void sample_phi() {
   polya_urn_normalize<<<1,1>>>();
   // transpose Phi
   polya_urn_colsums<<<1,1>>>();
-  build_alias<<<1,1>>>();
+//  build_alias<<<1,1>>>();
 }
 
 extern "C" void sample_z(Buffer* buffer) {

@@ -9,7 +9,7 @@ class SpAlias {
     ~SpAlias();
 };
 
-__global__ void build_alias();
+__global__ void build_alias(float** prob, float** alias, int table_size);
 
 }
 
