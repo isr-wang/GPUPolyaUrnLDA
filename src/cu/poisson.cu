@@ -85,23 +85,24 @@ __device__ __forceinline__ int warp_queue_pair_pop(/*mut*/ int* size, unsigned i
   return read_start;
 }
 
-__global__ void build_poisson(float** prob, float** alias, float beta, int table_size) {
-  int num_warps = (blockDim.x - 1) / warpSize + 1;
-  int lane_idx = threadIdx.x % warpSize;
+__global__ void build_poisson_prob(float** prob, float** alias, float beta, int table_size) {
   // determine constants
-  int lambda = blockIdx.x; // each block builds one table
-  float L = lambda + beta;
-  float cutoff = 1.0f/((float) table_size);
+  float lambda = blockIdx.x + beta; // each block builds one table
   // populate PMF
   for(int offset = 0; offset < table_size / blockDim.x + 1; ++offset) {
     int i = threadIdx.x + offset * blockDim.x;
     float x = i;
     if(i < table_size) {
-      prob[lambda][i] = expf(x*logf(L) - L - lgammaf(x + 1));
-      alias[lambda][i] = -1.0f;
+      prob[blockIdx.x][i] = expf(x*logf(lambda) - lambda - lgammaf(x + 1));
     }
   }
-  __syncthreads();
+}
+
+__global__ void build_poisson(float** prob, float** alias, int table_size) {
+  int num_warps = (blockDim.x - 1) / warpSize + 1;
+  int lane_idx = threadIdx.x % warpSize;
+  // determine constants
+  float cutoff = 1.0f/((float) table_size);
   // initialize queues
   unsigned int queue_size = next_pow2(table_size);
   extern __shared__ int shared_memory[];
@@ -126,7 +127,7 @@ __global__ void build_poisson(float** prob, float** alias, float beta, int table
   for(int offset = 0; offset < table_size / blockDim.x + 1; ++offset) {
     int i = threadIdx.x + offset * blockDim.x;
     if(i < table_size) {
-      float thread_prob = prob[lambda][i];
+      float thread_prob = prob[blockIdx.x][i];
       warp_queue_pair_push(i, thread_prob >= cutoff, queue_size, large, large_read_end, large_write_end, small, small_read_end, small_write_end);
     }
   }
@@ -139,21 +140,47 @@ __global__ void build_poisson(float** prob, float** alias, float beta, int table
     // if got an index, fill it
     if(lane_idx < warp_num_elements) {
       int thread_large_idx = large[queue_wraparound(warp_queue_idx + lane_idx,queue_size)];
-      float thread_large_prob = prob[lambda][thread_large_idx];
+      float thread_large_prob = prob[blockIdx.x][thread_large_idx];
       int thread_small_idx = small[queue_wraparound(warp_queue_idx + lane_idx,queue_size)];
-      float thread_small_prob = prob[lambda][thread_small_idx];
+      float thread_small_prob = prob[blockIdx.x][thread_small_idx];
       // determine new, smaller probability and fill the index
       thread_large_prob = (thread_large_prob + thread_small_prob) - cutoff;
-      alias[lambda][thread_small_idx] = (float) thread_large_idx;
-      prob[lambda][thread_large_idx] = thread_large_prob;
+      alias[blockIdx.x][thread_small_idx] = (float) thread_large_idx;
+      prob[blockIdx.x][thread_large_idx] = thread_large_prob;
       // finally, push remaining values back onto queues
       warp_queue_pair_push(thread_large_idx, thread_large_prob >= cutoff, queue_size, large, large_read_end, large_write_end, small, small_read_end, small_write_end);
     }
   }
+
   // at this point, one of the queues must be empty, so finish remaining values using slowest warp
-  if(atomicSub(num_active_warps, 1) == 1) {
-    // final warp: set remaining probabilities to 1
-    printf("Finishing remaining values");
+  if(lane_idx == 0) {
+    // determine if last exiting warp
+    if(atomicSub(num_active_warps, 1) == 1) {
+      // final warp: set remaining probabilities to 1
+      if(queue_pair_start[0] == small_read_end[0]) {
+        // elements still present in large queue
+        for(int offset = 0; offset < (large_read_end[0] - queue_pair_start[0]) / warpSize + 1; ++offset) {
+          int i = queue_pair_start[0] + offset*warpSize + lane_idx;
+          if(i < large_read_end[0]) {
+            int thread_large_idx = large[queue_wraparound(i,queue_size)];
+            prob[blockIdx.x][thread_large_idx] = 1.0f;
+            alias[blockIdx.x][thread_large_idx] = (float) thread_large_idx;
+          }
+        }
+      } else if(queue_pair_start[0] == large_read_end[0]) {
+        // elements still present in small queue
+        for(int offset = 0; offset < (small_read_end[0] - queue_pair_start[0]) / warpSize + 1; ++offset) {
+          int i = queue_pair_start[0] + offset*warpSize + lane_idx;
+          if(i < small_read_end[0]) {
+            int thread_small_idx = large[queue_wraparound(i,queue_size)];
+            prob[blockIdx.x][thread_small_idx] = 1.0f;
+            alias[blockIdx.x][thread_small_idx] = (float) thread_small_idx;
+          }
+        }
+      } else {
+        assert(false); // something went wrong, table is incorrect
+      }
+    }
   }
 }
 
@@ -183,7 +210,8 @@ Poisson::Poisson(int ml, int mv) {
   delete[] prob_host;
   delete[] alias_host;
   // launch kernel to build the alias tables
-  build_poisson<<</*max_lambda*/1,96/*32*/,2*next_pow2(max_value)*sizeof(int)>>>(prob, alias, ARGS->beta, max_value);
+  build_poisson_prob<<<max_lambda,96>>>(prob, alias, ARGS->beta, max_value);
+  build_poisson<<<max_lambda,32,2*next_pow2(max_value)*sizeof(int)>>>(prob, alias, max_value);
   cudaDeviceSynchronize();
 }
 
