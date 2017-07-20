@@ -29,7 +29,7 @@ __device__ __forceinline__ void warp_queue_pair_push(int value, int conditional,
     int* q2, unsigned int* q2_read_end, unsigned int* q2_write_end) {
   // determine which threads write to which queue
   unsigned int warp_q1_bits = __ballot(conditional);
-  unsigned int warp_q2_bits = __ballot(~conditional); // note: some threads may be inactive
+  unsigned int warp_q2_bits = __ballot(!conditional); // note: some threads may be inactive
   // determine how many writes are in the warp's view for each queue
   int warp_num_q1 = __popc(warp_q1_bits);
   int warp_num_q2 = __popc(warp_q2_bits);
@@ -43,17 +43,17 @@ __device__ __forceinline__ void warp_queue_pair_push(int value, int conditional,
   warp_q1_start = __shfl(warp_q1_start, 0);
   warp_q2_start = __shfl(warp_q2_start, 0);
   // if current thread has elements, determine where to write them
-  int* write_queue;
-  int write_idx;
+  int* thread_write_queue;
+  int thread_write_idx;
   if(conditional) {
-    write_queue = q1;
-    write_idx = warp_q1_start + warp_lane_offset(warp_q1_bits);
+    thread_write_queue = q1;
+    thread_write_idx = warp_q1_start + warp_lane_offset(warp_q1_bits);
   } else {
-    write_queue = q2;
-    write_idx = warp_q2_start + warp_lane_offset(warp_q2_bits);
+    thread_write_queue = q2;
+    thread_write_idx = warp_q2_start + warp_lane_offset(warp_q2_bits);
   }
   // write elements to both queues
-  write_queue[queue_wraparound(write_idx,queue_size)] = value;
+  thread_write_queue[queue_wraparound(thread_write_idx,queue_size)] = value;
   // increment the number of elements that may be read from the queue
   if(threadIdx.x % 32 == 0) {
     // need to do a CAS, otherwise another thread may increment before writing is finished
@@ -79,7 +79,7 @@ __device__ __forceinline__ int warp_queue_pair_pop(/*mut*/ int* size, unsigned i
 }
 
 __global__ void build_poisson(float** prob, float** alias, float beta, int table_size) {
-  int num_warps = blockDim.x / warpSize + 1;
+  int num_warps = (blockDim.x - 1) / warpSize + 1;
   int lane_idx = threadIdx.x % warpSize;
   // determine constants
   int lambda = blockIdx.x; // each block builds one table
