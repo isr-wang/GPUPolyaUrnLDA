@@ -10,8 +10,8 @@
 
 #define POIS_MAX_LAMBDA 100
 #define POIS_MAX_VALUE 200
-#define DLH_DENSE 100
-#define DLH_SPARSE 1000
+#define DS_DENSE 100
+#define DS_SPARSE 1000
 
 namespace gplda {
 
@@ -33,7 +33,7 @@ extern "C" void initialize(Args* args, Buffer* buffers, size_t n_buffers) {
   Phi = new DSMatrix<float>();
   n = new DSMatrix<uint32_t>();
   pois = new Poisson(POIS_MAX_LAMBDA, POIS_MAX_VALUE);
-  alias = new SpAlias();
+  alias = new SpAlias(ARGS->V, ARGS->K);
   cudaMalloc(&sigma_a,ARGS->V * sizeof(float)) >> GPLDA_CHECK;
 }
 

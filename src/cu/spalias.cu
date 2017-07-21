@@ -5,7 +5,7 @@
 
 namespace gplda {
 
-__device__ __forceinline__ unsigned int next_pow2(unsigned int x) {
+__host__ __device__ unsigned int next_pow2(unsigned int x) {
   x--;
   x |= x >> 1;
   x |= x >> 2;
@@ -171,21 +171,24 @@ __global__ void build_alias(float** prob, float** alias, int table_size) {
   }
 }
 
-SpAlias::SpAlias() {
+SpAlias::SpAlias(int nt, int ts) {
+  // assign class parameters
+  num_tables = nt;
+  table_size = ts;
   // allocate array of pointers on host first, so cudaMalloc can populate it
-  float** prob_host = new float*[ARGS->V];
-  float** alias_host = new float*[ARGS->V];
+  float** prob_host = new float*[num_tables];
+  float** alias_host = new float*[num_tables];
   // allocate each Alias table
-  for(size_t i = 0; i < ARGS->V; ++i) {
-    cudaMalloc(&prob_host[i], ARGS->K * sizeof(float)) >> GPLDA_CHECK;
-    cudaMalloc(&alias_host[i], ARGS->K * sizeof(float)) >> GPLDA_CHECK;
+  for(size_t i = 0; i < num_tables; ++i) {
+    cudaMalloc(&prob_host[i], table_size * sizeof(float)) >> GPLDA_CHECK;
+    cudaMalloc(&alias_host[i], table_size * sizeof(float)) >> GPLDA_CHECK;
   }
   // now, allocate array of pointers on device
-  cudaMalloc(&prob, ARGS->V * sizeof(float*)) >> GPLDA_CHECK;
-  cudaMalloc(&alias, ARGS->V * sizeof(float*)) >> GPLDA_CHECK;
+  cudaMalloc(&prob, num_tables * sizeof(float*)) >> GPLDA_CHECK;
+  cudaMalloc(&alias, num_tables * sizeof(float*)) >> GPLDA_CHECK;
   // copy array of pointers to device
-  cudaMemcpy(prob, prob_host, ARGS->V * sizeof(float*), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
-  cudaMemcpy(alias, alias_host, ARGS->V * sizeof(float*), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
+  cudaMemcpy(prob, prob_host, num_tables * sizeof(float*), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
+  cudaMemcpy(alias, alias_host, num_tables * sizeof(float*), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
   // deallocate array of pointers on host
   delete[] prob_host;
   delete[] alias_host;
@@ -193,13 +196,13 @@ SpAlias::SpAlias() {
 
 SpAlias::~SpAlias() {
   // allocate array of pointers on host, so we can dereference it
-  float** prob_host = new float*[ARGS->V];
-  float** alias_host = new float*[ARGS->V];
+  float** prob_host = new float*[num_tables];
+  float** alias_host = new float*[num_tables];
   // copy array of pointers to host
-  cudaMemcpy(prob_host, prob, ARGS->V * sizeof(float*), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
-  cudaMemcpy(alias_host, alias, ARGS->V * sizeof(float*), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
+  cudaMemcpy(prob_host, prob, num_tables * sizeof(float*), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
+  cudaMemcpy(alias_host, alias, num_tables * sizeof(float*), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
   // free the memory at the arrays being pointed to
-  for(size_t i = 0; i < ARGS->V; ++i) {
+  for(size_t i = 0; i < num_tables; ++i) {
     cudaFree(prob_host[i]) >> GPLDA_CHECK;
     cudaFree(alias_host[i]) >> GPLDA_CHECK;
   }
