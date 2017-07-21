@@ -68,15 +68,15 @@ extern "C" void sample_phi() {
   polya_urn_colsums<<<ARGS->V,128>>>(Phi->dense, sigma_a, ARGS->K); // compute sigma_a
   polya_urn_prob<<<ARGS->V,128>>>(Phi->dense, sigma_a, ARGS->K, alias->prob); // compute and copy probabilities for use in Alias table
   build_alias<<<ARGS->V,32,2*next_pow2(ARGS->K)*sizeof(int)>>>(alias->prob, alias->alias, ARGS->K); // build Alias table
-  reset_sufficient_statistics<<<1,1>>>(n->dense, sigma_a); // reset sufficient statistics for n
+  reset_sufficient_statistics<<<ARGS->K,256>>>(n->dense, sigma_a, ARGS->V); // reset sufficient statistics for n
 }
 
 extern "C" void sample_z_async(Buffer* buffer) {
   cudaMemcpyAsync(buffer->gpu_d_len, buffer->d, buffer->n_docs, cudaMemcpyHostToDevice,*buffer->stream) >> GPLDA_CHECK; // copy d to GPU
-  compute_d_idx<<<1,1,0,*buffer->stream>>>(buffer->gpu_d_len, buffer->gpu_d_idx, buffer->n_docs);
+  compute_d_idx<<<n_docs,32,0,*buffer->stream>>>(buffer->gpu_d_len, buffer->gpu_d_idx, buffer->n_docs);
   cudaMemcpyAsync(buffer->gpu_z, buffer->z, buffer->size, cudaMemcpyHostToDevice,*buffer->stream) >> GPLDA_CHECK; // copy z to GPU
   cudaMemcpyAsync(buffer->gpu_w, buffer->w, buffer->size, cudaMemcpyHostToDevice,*buffer->stream) >> GPLDA_CHECK; // copy w to GPU
-  warp_sample_topics<<<1,1,0,*buffer->stream>>>(buffer->size, buffer->n_docs, buffer->gpu_z, buffer->gpu_w, buffer->gpu_d_len, buffer->gpu_d_idx);
+  warp_sample_topics<<<n_docs,32,0,*buffer->stream>>>(buffer->size, buffer->n_docs, buffer->gpu_z, buffer->gpu_w, buffer->gpu_d_len, buffer->gpu_d_idx);
   cudaMemcpyAsync(buffer->z, buffer->gpu_z, buffer->size, cudaMemcpyDeviceToHost,*buffer->stream) >> GPLDA_CHECK; // copy z back to host
 }
 
