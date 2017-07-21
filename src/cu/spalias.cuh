@@ -5,6 +5,8 @@ namespace gplda {
 
 class SpAlias {
   public:
+    float** prob;
+    float** alias;
     SpAlias();
     ~SpAlias();
 };

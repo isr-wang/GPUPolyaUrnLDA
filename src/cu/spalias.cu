@@ -1,4 +1,6 @@
 #include "assert.h"
+#include "error.cuh"
+#include "train.cuh"
 #include "spalias.cuh"
 
 namespace gplda {
@@ -169,7 +171,44 @@ __global__ void build_alias(float** prob, float** alias, int table_size) {
   }
 }
 
-SpAlias::SpAlias() {}
-SpAlias::~SpAlias() {}
+SpAlias::SpAlias() {
+  // allocate array of pointers on host first, so cudaMalloc can populate it
+  float** prob_host = new float*[ARGS->V];
+  float** alias_host = new float*[ARGS->V];
+  // allocate each Alias table
+  for(size_t i = 0; i < ARGS->V; ++i) {
+    cudaMalloc(&prob_host[i], ARGS->K * sizeof(float)) >> GPLDA_CHECK;
+    cudaMalloc(&alias_host[i], ARGS->K * sizeof(float)) >> GPLDA_CHECK;
+  }
+  // now, allocate array of pointers on device
+  cudaMalloc(&prob, ARGS->V * sizeof(float*)) >> GPLDA_CHECK;
+  cudaMalloc(&alias, ARGS->V * sizeof(float*)) >> GPLDA_CHECK;
+  // copy array of pointers to device
+  cudaMemcpy(prob, prob_host, ARGS->V * sizeof(float*), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
+  cudaMemcpy(alias, alias_host, ARGS->V * sizeof(float*), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
+  // deallocate array of pointers on host
+  delete[] prob_host;
+  delete[] alias_host;
+}
+
+SpAlias::~SpAlias() {
+  // allocate array of pointers on host, so we can dereference it
+  float** prob_host = new float*[ARGS->V];
+  float** alias_host = new float*[ARGS->V];
+  // copy array of pointers to host
+  cudaMemcpy(prob_host, prob, ARGS->V * sizeof(float*), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
+  cudaMemcpy(alias_host, alias, ARGS->V * sizeof(float*), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
+  // free the memory at the arrays being pointed to
+  for(size_t i = 0; i < ARGS->V; ++i) {
+    cudaFree(prob_host[i]) >> GPLDA_CHECK;
+    cudaFree(alias_host[i]) >> GPLDA_CHECK;
+  }
+  // free the memory of the pointer array on device
+  cudaFree(prob) >> GPLDA_CHECK;
+  cudaFree(alias) >> GPLDA_CHECK;
+  // deallocate array of pointers on host
+  delete[] prob_host;
+  delete[] alias_host;
+}
 
 }
