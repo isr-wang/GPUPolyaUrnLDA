@@ -8,7 +8,7 @@ namespace gplda {
 
 class Poisson {
   public:
-    SpAlias* alias;
+    SpAlias* pois_alias;
     int max_lambda;
     int max_value;
     Poisson(int ml, int mv);
