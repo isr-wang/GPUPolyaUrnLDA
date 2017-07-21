@@ -9,8 +9,7 @@ pub struct Buffer {
   size: size_t,
   z: *const uint32_t,
   w: *const uint32_t,
-  d_len: *const uint32_t,
-  d_idx: *const uint32_t,
+  d: *const uint32_t,
   n_docs: size_t,
   gpu_z: *mut c_void,
   gpu_w: *mut c_void,
@@ -25,15 +24,13 @@ impl Buffer {
     // allocate arrays
     let z = Vec::with_capacity(size).into_boxed_slice();
     let w = Vec::with_capacity(size).into_boxed_slice();
-    let d_len = Vec::with_capacity(size).into_boxed_slice();
-    let d_idx = Vec::with_capacity(size).into_boxed_slice();
+    let d = Vec::with_capacity(size).into_boxed_slice();
     // create buffer
     let b = Buffer {
       size: size,
       z: z.as_ptr(),
       w: w.as_ptr(),
-      d_len: d_len.as_ptr(),
-      d_idx: d_idx.as_ptr(),
+      d: d.as_ptr(),
       n_docs: 0,
       gpu_z: ptr::null_mut(),
       gpu_w: ptr::null_mut(),
@@ -44,8 +41,7 @@ impl Buffer {
     // as_ptr doesn't take ownership, we need to be sure not to deallocate any arrays
     mem::forget(z);
     mem::forget(w);
-    mem::forget(d_len);
-    mem::forget(d_idx);
+    mem::forget(d);
     // return the buffer
     b
   }
@@ -55,10 +51,9 @@ impl Buffer {
 impl Drop for Buffer {
   fn drop(&mut self) {
     unsafe {
-      let z = slice::from_raw_parts(self.z, self.size);
-      let w = slice::from_raw_parts(self.w, self.size);
-      let d_len = slice::from_raw_parts(self.d_len, self.size);
-      let d_idx = slice::from_raw_parts(self.d_idx, self.size);
+      let z = Box::new(slice::from_raw_parts(self.z, self.size));
+      let w = Box::new(slice::from_raw_parts(self.w, self.size));
+      let d = Box::new(slice::from_raw_parts(self.d, self.size));
       // at this point, z,w,dLen,dIdx are dropped and deallocated
     }
   }

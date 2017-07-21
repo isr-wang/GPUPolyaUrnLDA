@@ -20,8 +20,7 @@ struct Buffer {
   size_t size;
   uint32_t* z;
   uint32_t* w;
-  uint32_t* d_len;
-  uint32_t* d_idx;
+  uint32_t* d;
   size_t n_docs;
   uint32_t* gpu_z;
   uint32_t* gpu_w;
@@ -39,7 +38,7 @@ extern float* sigma_a;
 
 extern "C" void initialize(Args* args, Buffer* buffers, size_t n_buffers);
 extern "C" void sample_phi();
-extern "C" void sample_z(Buffer* buffer);
+extern "C" void sample_z_async(Buffer* buffer);
 extern "C" void cleanup(Buffer* buffers, size_t n_buffers);
 extern "C" void sync_buffer(Buffer* buffer);
 
