@@ -2,6 +2,7 @@
 
 #include <cuda_runtime.h>
 #include <cublas_v2.h> // need to add -lcublas to nvcc flags
+#include <curand.h> // need to add -lcurand to nvcc flags
 
 #include "train.cuh"
 #include "dsmatrix.cuh"
@@ -29,6 +30,7 @@ float* sigma_a;
 // other global variables
 cudaStream_t* Phi_stream;
 cublasHandle_t* cublas_handle;
+curandGenerator_t* curand_generator;
 DSMatrix<float>* Phi_temp;
 float* d_one;
 float* d_zero;
@@ -46,6 +48,11 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, size_t n_buffers) {
   cudaMalloc(&d_zero, sizeof(float)) >> GPLDA_CHECK;
   cudaMemset(d_zero, 0.0f, 1) >> GPLDA_CHECK;
   Phi_temp = new DSMatrix<float>();
+
+  // allocate and initialize cuRAND
+  curand_generator = new curandGenerator_t;
+  curandCreateGenerator(curand_generator, CURAND_RNG_PSEUDO_PHILOX4_32_10) >> GPLDA_CHECK;
+  curandSetPseudoRandomGeneratorSeed(*curand_generator, 0) >> GPLDA_CHECK;
 
   // allocate and initialize streams
   Phi_stream = new cudaStream_t;
@@ -91,6 +98,10 @@ extern "C" void cleanup(Buffer* buffers, size_t n_buffers) {
   cudaStreamDestroy(*Phi_stream) >> GPLDA_CHECK;
   delete Phi_stream;
 
+  // deallocate cuRAND
+  curandDestroyGenerator(*curand_generator) >> GPLDA_CHECK;
+  delete curand_generator;
+
   // deallocate cuBLAS
   delete Phi_temp;
   cudaFree(d_zero) >> GPLDA_CHECK;
@@ -104,7 +115,9 @@ extern "C" void cleanup(Buffer* buffers, size_t n_buffers) {
 
 extern "C" void sample_phi() {
   // draw Phi ~ PPU(n + beta)
-  polya_urn_sample<<<args->K,256,0,*Phi_stream>>>(Phi->dense, n->dense, args->beta, args->V, alias->prob, alias->alias);
+  curandSetStream(*curand_generator, *Phi_stream) >> GPLDA_CHECK;
+  curandGenerateUniform(*curand_generator, Phi->dense, args->V * args->K) >> GPLDA_CHECK;
+  polya_urn_sample<<<args->K,256,0,*Phi_stream>>>(Phi->dense, n->dense, args->beta, args->V, pois->pois_alias->prob, pois->pois_alias->alias, pois->max_lambda, pois->max_value);
 
   // copy Phi for transpose, set the stream, then transpose Phi
   cudaMemcpyAsync(Phi_temp->dense, Phi->dense, args->V * args->K * sizeof(float), cudaMemcpyDeviceToDevice, *Phi_stream) >> GPLDA_CHECK;
