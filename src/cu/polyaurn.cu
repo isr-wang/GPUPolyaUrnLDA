@@ -31,10 +31,6 @@ __global__ void polya_urn_sample(float* Phi, uint32_t* n, float beta, uint32_t V
   }
 }
 
-__global__ void polya_urn_transpose(float *Phi) {
-
-}
-
 __global__ void polya_urn_colsums(float* Phi, float* sigma_a, float** prob, uint32_t K) {
 
 }
