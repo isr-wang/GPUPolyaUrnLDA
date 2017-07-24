@@ -6,7 +6,7 @@ namespace gplda {
 
 template<class T>
 DSMatrix<T>::DSMatrix<T>() {
-  cudaMalloc/*Pitch*/(&dense, ARGS->K * ARGS->V * sizeof(T)) >> GPLDA_CHECK;
+  cudaMalloc/*Pitch*/(&dense, args->K * args->V * sizeof(T)) >> GPLDA_CHECK;
 }
 
 template<class T>

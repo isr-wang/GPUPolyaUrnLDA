@@ -19,9 +19,6 @@ __global__ void build_poisson_prob(float** prob, float** alias, float beta, int 
   }
 }
 
-__global__ void draw_poisson(float** prob, float** alias, int* lambda, int n) {
-}
-
 Poisson::Poisson(int ml, int mv) {
   // assign class parameters
   max_lambda = ml;
@@ -29,7 +26,7 @@ Poisson::Poisson(int ml, int mv) {
   // allocate alias table
   pois_alias = new SpAlias(max_lambda, max_value);
   // launch kernel to build the alias tables
-  build_poisson_prob<<<max_lambda,96>>>(pois_alias->prob, pois_alias->alias, ARGS->beta, max_value);
+  build_poisson_prob<<<max_lambda,96>>>(pois_alias->prob, pois_alias->alias, args->beta, max_value);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
   build_alias<<<max_lambda,32,2*next_pow2(max_value)*sizeof(int)>>>(pois_alias->prob, pois_alias->alias, max_value);
   cudaDeviceSynchronize() >> GPLDA_CHECK;

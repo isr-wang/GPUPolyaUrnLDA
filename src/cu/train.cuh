@@ -29,7 +29,7 @@ struct Buffer {
   cudaStream_t* stream;
 };
 
-extern Args* ARGS;
+extern Args* args;
 extern DSMatrix<float>* Phi;
 extern DSMatrix<uint32_t>* n;
 extern Poisson* pois;
