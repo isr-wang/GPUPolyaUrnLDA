@@ -66,6 +66,7 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, size_t n_buffers) {
     cudaMalloc(&buffers[i].gpu_w, buffers[i].size * sizeof(uint32_t)) >> GPLDA_CHECK;
     cudaMalloc(&buffers[i].gpu_d_len, buffers[i].size * sizeof(uint32_t)) >> GPLDA_CHECK;
     cudaMalloc(&buffers[i].gpu_d_idx, buffers[i].size * sizeof(uint32_t)) >> GPLDA_CHECK;
+    cudaMalloc(&buffers[i].gpu_u, buffers[i].size * sizeof(float)) >> GPLDA_CHECK;
   }
 
   // allocate globals
@@ -74,6 +75,10 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, size_t n_buffers) {
   pois = new Poisson(POIS_MAX_LAMBDA, POIS_MAX_VALUE);
   alias = new SpAlias(args->V, args->K);
   cudaMalloc(&sigma_a,args->V * sizeof(float)) >> GPLDA_CHECK;
+
+  // run device init code
+  polya_urn_init<<<1,1>>>(Phi->dense);
+  cudaDeviceSynchronize() >> GPLDA_CHECK;
 }
 
 extern "C" void cleanup(Buffer* buffers, size_t n_buffers) {
@@ -90,6 +95,7 @@ extern "C" void cleanup(Buffer* buffers, size_t n_buffers) {
     cudaFree(buffers[i].gpu_w) >> GPLDA_CHECK;
     cudaFree(buffers[i].gpu_d_len) >> GPLDA_CHECK;
     cudaFree(buffers[i].gpu_d_idx) >> GPLDA_CHECK;
+    cudaFree(buffers[i].gpu_u) >> GPLDA_CHECK;
     cudaStreamDestroy(*buffers[i].stream) >> GPLDA_CHECK;
     delete buffers[i].stream;
   }
@@ -138,11 +144,17 @@ extern "C" void sample_phi() {
 }
 
 extern "C" void sample_z_async(Buffer* buffer) {
-  // copy z,w,d to GPU and compute d_idx based on document length
+  // copy z,w,d to GPU
   cudaMemcpyAsync(buffer->gpu_z, buffer->z, buffer->size, cudaMemcpyHostToDevice,*buffer->stream) >> GPLDA_CHECK; // copy z to GPU
   cudaMemcpyAsync(buffer->gpu_w, buffer->w, buffer->size, cudaMemcpyHostToDevice,*buffer->stream) >> GPLDA_CHECK; // copy w to GPU
   cudaMemcpyAsync(buffer->gpu_d_len, buffer->d, buffer->n_docs, cudaMemcpyHostToDevice,*buffer->stream) >> GPLDA_CHECK;
+
+  // compute d_idx based on document length
   compute_d_idx<<<buffer->n_docs,32,0,*buffer->stream>>>(buffer->gpu_d_len, buffer->gpu_d_idx, buffer->n_docs);
+
+  // generate u
+  curandSetStream(*curand_generator, *buffer->stream) >> GPLDA_CHECK;
+  curandGenerateUniform(*curand_generator, buffer->gpu_u, buffer->n_docs) >> GPLDA_CHECK;
 
   // sample the topic indicators
   warp_sample_topics<<<buffer->n_docs,32,0,*buffer->stream>>>(buffer->size, buffer->n_docs, buffer->gpu_z, buffer->gpu_w, buffer->gpu_d_len, buffer->gpu_d_idx);

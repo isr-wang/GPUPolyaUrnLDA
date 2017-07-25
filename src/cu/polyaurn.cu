@@ -3,6 +3,10 @@
 
 namespace gplda {
 
+__global__ void polya_urn_init(float* Phi) {
+
+}
+
 __device__ __forceinline__ float draw_poisson(float u, float beta, uint32_t n,
     float** prob, float** alias, uint32_t max_lambda, uint32_t max_value) {
   // MUST be defined in this file to compile on all platforms
@@ -110,7 +114,7 @@ __global__ void polya_urn_colsums(float* Phi, float* sigma_a, float** prob, uint
     sigma_a[blockIdx.x] = thread_sum;
   }
 
-  // compute and set Alias table probabilities
+  // compute and set alias table probabilities
   for(int offset = 0; offset < K / blockDim.x + 1; ++offset) {
     int row = threadIdx.x + offset * blockDim.x;
     int array_idx = row + K * blockIdx.x;

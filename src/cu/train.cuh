@@ -26,6 +26,7 @@ struct Buffer {
   uint32_t* gpu_w;
   uint32_t* gpu_d_len;
   uint32_t* gpu_d_idx;
+  float* gpu_u;
   cudaStream_t* stream;
 };
 
