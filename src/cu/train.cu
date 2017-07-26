@@ -2,7 +2,7 @@
 
 #include <cuda_runtime.h>
 #include <cublas_v2.h> // need to add -lcublas to nvcc flags
-#include <curand.h> // need to add -lcurand to nvcc flags
+#include <curand_kernel.h> // need to add -lcurand to nvcc flags
 
 #include "train.cuh"
 #include "dsmatrix.cuh"
@@ -26,6 +26,7 @@ DSMatrix<uint32_t>* n;
 Poisson* pois;
 SpAlias* alias;
 float* sigma_a;
+curandStatePhilox4_32_10_t* Phi_rng;
 
 // other global variables
 cudaStream_t* Phi_stream;
@@ -34,6 +35,13 @@ curandGenerator_t* curand_generator;
 DSMatrix<float>* Phi_temp;
 float* d_one;
 float* d_zero;
+
+// initializer for random number generator
+__global__ void rand_init(int seed, int subsequence, curandStatePhilox4_32_10_t* r) {
+  if(threadIdx.x == 0 && blockIdx.x == 0) {
+    curand_init((unsigned long long) seed, (unsigned long long) subsequence, (unsigned long long) 0, r);
+  }
+}
 
 extern "C" void initialize(Args* init_args, Buffer* buffers, size_t n_buffers) {
   // set the pointer to args struct
@@ -50,9 +58,9 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, size_t n_buffers) {
   Phi_temp = new DSMatrix<float>();
 
   // allocate and initialize cuRAND
-  curand_generator = new curandGenerator_t;
-  curandCreateGenerator(curand_generator, CURAND_RNG_PSEUDO_PHILOX4_32_10) >> GPLDA_CHECK;
-  curandSetPseudoRandomGeneratorSeed(*curand_generator, 0) >> GPLDA_CHECK;
+  cudaMalloc(&Phi_rng, sizeof(curandStatePhilox4_32_10_t)) >> GPLDA_CHECK;
+  rand_init<<<1,1>>>(0, 0, Phi_rng);
+  cudaDeviceSynchronize() >> GPLDA_CHECK;
 
   // allocate and initialize streams
   Phi_stream = new cudaStream_t;
@@ -66,7 +74,9 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, size_t n_buffers) {
     cudaMalloc(&buffers[i].gpu_w, buffers[i].size * sizeof(uint32_t)) >> GPLDA_CHECK;
     cudaMalloc(&buffers[i].gpu_d_len, buffers[i].size * sizeof(uint32_t)) >> GPLDA_CHECK;
     cudaMalloc(&buffers[i].gpu_d_idx, buffers[i].size * sizeof(uint32_t)) >> GPLDA_CHECK;
-    cudaMalloc(&buffers[i].gpu_u, buffers[i].size * sizeof(float)) >> GPLDA_CHECK;
+    cudaMalloc(&buffers[i].gpu_rng, sizeof(curandStatePhilox4_32_10_t)) >> GPLDA_CHECK;
+    rand_init<<<1,1>>>(0, i + 1, buffers[i].gpu_rng);
+    cudaDeviceSynchronize() >> GPLDA_CHECK;
   }
 
   // allocate globals
@@ -77,7 +87,7 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, size_t n_buffers) {
   cudaMalloc(&sigma_a,args->V * sizeof(float)) >> GPLDA_CHECK;
 
   // run device init code
-  polya_urn_init<<<1,1>>>(Phi->dense);
+  polya_urn_init<<<1,1>>>(Phi->dense, Phi_rng);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 }
 
@@ -95,7 +105,7 @@ extern "C" void cleanup(Buffer* buffers, size_t n_buffers) {
     cudaFree(buffers[i].gpu_w) >> GPLDA_CHECK;
     cudaFree(buffers[i].gpu_d_len) >> GPLDA_CHECK;
     cudaFree(buffers[i].gpu_d_idx) >> GPLDA_CHECK;
-    cudaFree(buffers[i].gpu_u) >> GPLDA_CHECK;
+    cudaFree(buffers[i].gpu_rng) >> GPLDA_CHECK;
     cudaStreamDestroy(*buffers[i].stream) >> GPLDA_CHECK;
     delete buffers[i].stream;
   }
@@ -105,8 +115,7 @@ extern "C" void cleanup(Buffer* buffers, size_t n_buffers) {
   delete Phi_stream;
 
   // deallocate cuRAND
-  curandDestroyGenerator(*curand_generator) >> GPLDA_CHECK;
-  delete curand_generator;
+  cudaFree(Phi_rng) >> GPLDA_CHECK;
 
   // deallocate cuBLAS
   delete Phi_temp;
@@ -121,9 +130,7 @@ extern "C" void cleanup(Buffer* buffers, size_t n_buffers) {
 
 extern "C" void sample_phi() {
   // draw Phi ~ PPU(n + beta)
-  curandSetStream(*curand_generator, *Phi_stream) >> GPLDA_CHECK;
-  curandGenerateUniform(*curand_generator, Phi->dense, args->V * args->K) >> GPLDA_CHECK;
-  polya_urn_sample<<<args->K,256,0,*Phi_stream>>>(Phi->dense, n->dense, args->beta, args->V, pois->pois_alias->prob, pois->pois_alias->alias, pois->max_lambda, pois->max_value);
+  polya_urn_sample<<<args->K,256,0,*Phi_stream>>>(Phi->dense, n->dense, args->beta, args->V, pois->pois_alias->prob, pois->pois_alias->alias, pois->max_lambda, pois->max_value, Phi_rng);
 
   // copy Phi for transpose, set the stream, then transpose Phi
   cudaMemcpyAsync(Phi_temp->dense, Phi->dense, args->V * args->K * sizeof(float), cudaMemcpyDeviceToDevice, *Phi_stream) >> GPLDA_CHECK;
@@ -144,20 +151,14 @@ extern "C" void sample_phi() {
 }
 
 extern "C" void sample_z_async(Buffer* buffer) {
-  // copy z,w,d to GPU
+  // copy z,w,d to GPU and compute d_idx based on document length
   cudaMemcpyAsync(buffer->gpu_z, buffer->z, buffer->size, cudaMemcpyHostToDevice,*buffer->stream) >> GPLDA_CHECK; // copy z to GPU
   cudaMemcpyAsync(buffer->gpu_w, buffer->w, buffer->size, cudaMemcpyHostToDevice,*buffer->stream) >> GPLDA_CHECK; // copy w to GPU
   cudaMemcpyAsync(buffer->gpu_d_len, buffer->d, buffer->n_docs, cudaMemcpyHostToDevice,*buffer->stream) >> GPLDA_CHECK;
-
-  // compute d_idx based on document length
-  compute_d_idx(buffer->gpu_d_len, buffer->gpu_d_idx, buffer->n_docs);
-
-  // generate u
-  curandSetStream(*curand_generator, *buffer->stream) >> GPLDA_CHECK;
-  curandGenerateUniform(*curand_generator, buffer->gpu_u, buffer->n_docs) >> GPLDA_CHECK;
+  compute_d_idx(*buffer->stream, buffer->gpu_d_len, buffer->gpu_d_idx, buffer->n_docs);
 
   // sample the topic indicators
-  warp_sample_topics<<<buffer->n_docs,32,0,*buffer->stream>>>(buffer->size, buffer->n_docs, buffer->gpu_z, buffer->gpu_w, buffer->gpu_d_len, buffer->gpu_d_idx);
+  warp_sample_topics<<<buffer->n_docs,32,0,*buffer->stream>>>(buffer->size, buffer->n_docs, buffer->gpu_z, buffer->gpu_w, buffer->gpu_d_len, buffer->gpu_d_idx, buffer->gpu_rng);
 
   // copy z back to host
   cudaMemcpyAsync(buffer->z, buffer->gpu_z, buffer->size, cudaMemcpyDeviceToHost,*buffer->stream) >> GPLDA_CHECK;

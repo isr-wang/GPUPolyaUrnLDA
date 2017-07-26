@@ -3,6 +3,9 @@
 
 #include "stdint.h"
 
+#include <cuda_runtime.h>
+#include <curand_kernel.h> // need to add -lcurand to nvcc flags
+
 #include "dsmatrix.cuh"
 #include "poisson.cuh"
 #include "spalias.cuh"
@@ -26,7 +29,7 @@ struct Buffer {
   uint32_t* gpu_w;
   uint32_t* gpu_d_len;
   uint32_t* gpu_d_idx;
-  float* gpu_u;
+  curandStatePhilox4_32_10_t* gpu_rng;
   cudaStream_t* stream;
 };
 

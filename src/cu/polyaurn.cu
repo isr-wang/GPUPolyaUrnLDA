@@ -3,10 +3,6 @@
 
 namespace gplda {
 
-__global__ void polya_urn_init(float* Phi) {
-
-}
-
 __device__ __forceinline__ float draw_poisson(float u, float beta, uint32_t n,
     float** prob, float** alias, uint32_t max_lambda, uint32_t max_value) {
   // MUST be defined in this file to compile on all platforms
@@ -38,6 +34,7 @@ __device__ __forceinline__ float draw_poisson(float u, float beta, uint32_t n,
   return normcdfinvf(u) * mu + mu;
 }
 
+
 __device__ __forceinline__ float block_reduce_sum(float* block_sum, float thread_sum) {
   // first, perform a warp reduce
   for(int offset = warpSize/2; offset > 0; offset /= 2) {
@@ -56,10 +53,19 @@ __device__ __forceinline__ float block_reduce_sum(float* block_sum, float thread
   return block_sum[0];
 }
 
+
+__global__ void polya_urn_init(float* Phi, curandStatePhilox4_32_10_t* rng) {
+  // initialize Phi ~ PPU(C/K + beta)
+}
+
+
 __global__ void polya_urn_sample(float* Phi, uint32_t* n, float beta, uint32_t V,
-    float** prob, float** alias, uint32_t max_lambda, uint32_t max_value) {
+    float** prob, float** alias, uint32_t max_lambda, uint32_t max_value,
+    curandStatePhilox4_32_10_t* rng) {
   // initialize variables
   float thread_sum = 0.0f;
+  curandStatePhilox4_32_10_t thread_rng = rng[0];
+  skipahead((unsigned long long int) blockIdx.x*blockDim.x + threadIdx.x, &thread_rng);
   __shared__ float block_sum[1];
   if(threadIdx.x == 0) {
     block_sum[0] = 0.0f;
@@ -70,7 +76,8 @@ __global__ void polya_urn_sample(float* Phi, uint32_t* n, float beta, uint32_t V
     int col = threadIdx.x + offset * blockDim.x;
     int array_idx = col + V * blockIdx.x;
     if(col < V) {
-      float pois = draw_poisson(Phi[array_idx], beta, n[array_idx], prob, alias, max_lambda, max_value);
+      float u = curand_uniform(&thread_rng);
+      float pois = draw_poisson(u, beta, n[array_idx], prob, alias, max_lambda, max_value);
       Phi[array_idx] = pois;
       thread_sum += pois;
     }
@@ -87,7 +94,14 @@ __global__ void polya_urn_sample(float* Phi, uint32_t* n, float beta, uint32_t V
       Phi[array_idx] /= thread_sum;
     }
   }
+
+  // write the updated RNG state to global memory
+  if(threadIdx.x == gridDim.x*blockDim.x + blockDim.x) {
+    // no need to synchronize here because we already did in block_reduce_sum
+    rng[0] = thread_rng;
+  }
 }
+
 
 __global__ void polya_urn_colsums(float* Phi, float* sigma_a, float** prob, uint32_t K) {  // initilize variables
   // initialize variables

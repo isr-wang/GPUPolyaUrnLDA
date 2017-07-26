@@ -15,7 +15,7 @@ pub struct Buffer {
   gpu_w: *mut c_void,
   gpu_d_len: *mut c_void,
   gpu_d_idx: *mut c_void,
-  gpu_u: *mut c_void,
+  gpu_rng: *mut c_void,
   stream: *mut c_void,
 }
 
@@ -37,7 +37,7 @@ impl Buffer {
       gpu_w: ptr::null_mut(),
       gpu_d_len: ptr::null_mut(),
       gpu_d_idx: ptr::null_mut(),
-      gpu_u: ptr::null_mut(),
+      gpu_rng: ptr::null_mut(),
       stream: ptr::null_mut(),
     };
     // as_ptr doesn't take ownership, we need to be sure not to deallocate any arrays
