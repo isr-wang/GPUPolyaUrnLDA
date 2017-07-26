@@ -150,7 +150,7 @@ extern "C" void sample_z_async(Buffer* buffer) {
   cudaMemcpyAsync(buffer->gpu_d_len, buffer->d, buffer->n_docs, cudaMemcpyHostToDevice,*buffer->stream) >> GPLDA_CHECK;
 
   // compute d_idx based on document length
-  compute_d_idx<<<buffer->n_docs,32,0,*buffer->stream>>>(buffer->gpu_d_len, buffer->gpu_d_idx, buffer->n_docs);
+  compute_d_idx(buffer->gpu_d_len, buffer->gpu_d_idx, buffer->n_docs);
 
   // generate u
   curandSetStream(*curand_generator, *buffer->stream) >> GPLDA_CHECK;
