@@ -17,6 +17,7 @@ struct Args {
   float beta;
   uint32_t K;
   uint32_t V;
+  uint32_t* C;
 };
 
 struct Buffer {
@@ -34,11 +35,6 @@ struct Buffer {
 };
 
 extern Args* args;
-extern DSMatrix<float>* Phi;
-extern DSMatrix<uint32_t>* n;
-extern Poisson* pois;
-extern SpAlias* alias;
-extern float* sigma_a;
 
 extern "C" void initialize(Args* args, Buffer* buffers, size_t n_buffers);
 extern "C" void sample_phi();

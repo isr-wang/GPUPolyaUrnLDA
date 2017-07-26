@@ -19,16 +19,15 @@
 
 namespace gplda {
 
-// externally visible global variables
-Args* args;
+// global variables
+Args* args; // externally visible
 DSMatrix<float>* Phi;
 DSMatrix<uint32_t>* n;
 Poisson* pois;
 SpAlias* alias;
 float* sigma_a;
+uint32_t* C;
 curandStatePhilox4_32_10_t* Phi_rng;
-
-// other global variables
 cudaStream_t* Phi_stream;
 cublasHandle_t* cublas_handle;
 curandGenerator_t* curand_generator;
@@ -37,9 +36,9 @@ float* d_one;
 float* d_zero;
 
 // initializer for random number generator
-__global__ void rand_init(int seed, int subsequence, curandStatePhilox4_32_10_t* r) {
+__global__ void rand_init(int seed, int subsequence, curandStatePhilox4_32_10_t* rng) {
   if(threadIdx.x == 0 && blockIdx.x == 0) {
-    curand_init((unsigned long long) seed, (unsigned long long) subsequence, (unsigned long long) 0, r);
+    curand_init((unsigned long long) seed, (unsigned long long) subsequence, (unsigned long long) 0, rng);
   }
 }
 
@@ -85,14 +84,17 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, size_t n_buffers) {
   pois = new Poisson(POIS_MAX_LAMBDA, POIS_MAX_VALUE);
   alias = new SpAlias(args->V, args->K);
   cudaMalloc(&sigma_a,args->V * sizeof(float)) >> GPLDA_CHECK;
+  cudaMalloc(&C,args->V * sizeof(uint32_t)) >> GPLDA_CHECK;
+  cudaMemcpy(C, args->C, args->V * sizeof(uint32_t), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
 
   // run device init code
-  polya_urn_init<<<1,1>>>(Phi->dense, Phi_rng);
+  polya_urn_init<<<args->K,256>>>(n->dense, C, args->beta, args->V, pois->pois_alias->prob, pois->pois_alias->alias, pois->max_lambda, pois->max_value, Phi_rng);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 }
 
 extern "C" void cleanup(Buffer* buffers, size_t n_buffers) {
   // deallocate globals
+  cudaFree(C) >> GPLDA_CHECK;
   cudaFree(sigma_a) >> GPLDA_CHECK;
   delete alias;
   delete pois;

@@ -54,8 +54,30 @@ __device__ __forceinline__ float block_reduce_sum(float* block_sum, float thread
 }
 
 
-__global__ void polya_urn_init(float* Phi, curandStatePhilox4_32_10_t* rng) {
-  // initialize Phi ~ PPU(C/K + beta)
+__global__ void polya_urn_init(uint32_t* n, uint32_t* C, float beta, uint32_t V,
+    float** prob, float** alias, uint32_t max_lambda, uint32_t max_value,
+    curandStatePhilox4_32_10_t* rng) {
+  // initialize variables
+  curandStatePhilox4_32_10_t thread_rng = rng[0];
+  skipahead((unsigned long long int) blockIdx.x*blockDim.x + threadIdx.x, &thread_rng);
+
+  // loop over array and draw samples
+  for(int offset = 0; offset < V / blockDim.x + 1; ++offset) {
+    int col = threadIdx.x + offset * blockDim.x;
+    int array_idx = col + V * blockIdx.x;
+    if(col < V) {
+      // draw n_k ~ Pois(C/K + beta)
+      float u = curand_uniform(&thread_rng);
+      float pois = draw_poisson(u, beta, C[col] / gridDim.x/*=K*/, prob, alias, max_lambda, max_value);
+      n[array_idx] = (uint32_t) pois;
+    }
+  }
+
+  // write the updated RNG state to global memory
+  __syncthreads();
+  if(threadIdx.x == gridDim.x*blockDim.x + blockDim.x) {
+    rng[0] = thread_rng;
+  }
 }
 
 
