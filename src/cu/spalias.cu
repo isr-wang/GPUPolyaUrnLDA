@@ -5,7 +5,7 @@
 
 namespace gplda {
 
-__host__ __device__ unsigned int next_pow2(unsigned int x) {
+__host__ __device__ uint32_t next_pow2(uint32_t x) {
   x--;
   x |= x >> 1;
   x |= x >> 2;
@@ -16,26 +16,26 @@ __host__ __device__ unsigned int next_pow2(unsigned int x) {
   return(x);
 }
 
-__device__ __forceinline__ unsigned int warp_lane_offset(unsigned int lane_bits) {
-  return __popc((~(((unsigned int) 4294967295) << (threadIdx.x % 32))) & lane_bits);
+__device__ __forceinline__ uint32_t warp_lane_offset(uint32_t lane_bits) {
+  return __popc((~(((uint32_t) 4294967295) << (threadIdx.x % 32))) & lane_bits);
 }
 
-__device__ __forceinline__ unsigned int queue_wraparound(unsigned int idx, unsigned int queue_size) {
+__device__ __forceinline__ uint32_t queue_wraparound(uint32_t idx, uint32_t queue_size) {
   return idx & (queue_size - 1);
 }
 
-__device__ __forceinline__ void warp_queue_pair_push(int value, int conditional, unsigned int queue_size,
-    int* q1, unsigned int* q1_read_end, unsigned int* q1_write_end,
-    int* q2, unsigned int* q2_read_end, unsigned int* q2_write_end) {
+__device__ __forceinline__ void warp_queue_pair_push(int32_t value, int32_t conditional, uint32_t queue_size,
+    int32_t* q1, uint32_t* q1_read_end, uint32_t* q1_write_end,
+    int32_t* q2, uint32_t* q2_read_end, uint32_t* q2_write_end) {
   // determine which threads write to which queue
-  unsigned int warp_q1_bits = __ballot(conditional);
-  unsigned int warp_q2_bits = __ballot(!conditional); // note: some threads may be inactive
+  uint32_t warp_q1_bits = __ballot(conditional);
+  uint32_t warp_q2_bits = __ballot(!conditional); // note: some threads may be inactive
   // determine how many writes are in the warp's view for each queue
-  int warp_num_q1 = __popc(warp_q1_bits);
-  int warp_num_q2 = __popc(warp_q2_bits);
+  int32_t warp_num_q1 = __popc(warp_q1_bits);
+  int32_t warp_num_q2 = __popc(warp_q2_bits);
   // increment the queue's size, only once per warp, then broadcast to all lanes in the warp
-  int warp_q1_start;
-  int warp_q2_start;
+  int32_t warp_q1_start;
+  int32_t warp_q2_start;
   if(threadIdx.x % 32 == 0) {
     warp_q1_start = atomicAdd(q1_write_end, warp_num_q1);
     warp_q2_start = atomicAdd(q2_write_end, warp_num_q2);
@@ -43,8 +43,8 @@ __device__ __forceinline__ void warp_queue_pair_push(int value, int conditional,
   warp_q1_start = __shfl(warp_q1_start, 0);
   warp_q2_start = __shfl(warp_q2_start, 0);
   // if current thread has elements, determine where to write them
-  int* thread_write_queue;
-  int thread_write_idx;
+  int32_t* thread_write_queue;
+  int32_t thread_write_idx;
   if(conditional) {
     thread_write_queue = q1;
     thread_write_idx = warp_q1_start + warp_lane_offset(warp_q1_bits);
@@ -62,19 +62,19 @@ __device__ __forceinline__ void warp_queue_pair_push(int value, int conditional,
   }
 }
 
-__device__ __forceinline__ int warp_queue_pair_pop(/*mut*/ int* size, unsigned int queue_size,
-    unsigned int* start, unsigned int* end1, unsigned int* end2) {
-  int read_start;
-  int read_size;
+__device__ __forceinline__ int32_t warp_queue_pair_pop(/*mut*/ int32_t* size, uint32_t queue_size,
+    uint32_t* start, uint32_t* end1, uint32_t* end2) {
+  int32_t read_start;
+  int32_t read_size;
   // read the queue once per warp
   if(threadIdx.x % warpSize == 0) {
     // first, peek at end1 and end2 to determine how many elements to try to read
-    int end = min(atomicAdd(end1,0), atomicAdd(end2,0));
+    int32_t end = min(atomicAdd(end1,0), atomicAdd(end2,0));
     // don't read more than warpSize elements
     read_start = atomicAdd(start,0);
     read_size = min(warpSize, end - read_start);
     // try to read and increment index of elements
-    int read_success = atomicCAS(start, read_start, read_start + read_size) == read_start;
+    int32_t read_success = atomicCAS(start, read_start, read_start + read_size) == read_start;
     read_size = read_success ? read_size : 0;
     // mutate size to indicate how many were actually read
   }
@@ -85,22 +85,22 @@ __device__ __forceinline__ int warp_queue_pair_pop(/*mut*/ int* size, unsigned i
   return read_start;
 }
 
-__global__ void build_alias(float** prob, float** alias, int table_size) {
-  int num_warps = (blockDim.x - 1) / warpSize + 1;
-  int lane_idx = threadIdx.x % warpSize;
+__global__ void build_alias(float** prob, float** alias, uint32_t table_size) {
+  int32_t num_warps = (blockDim.x - 1) / warpSize + 1;
+  int32_t lane_idx = threadIdx.x % warpSize;
   // determine constants
   float cutoff = 1.0f/((float) table_size);
   // initialize queues
-  unsigned int queue_size = next_pow2(table_size);
-  extern __shared__ int shared_memory[];
-  __shared__ int num_active_warps[1];
-  __shared__ unsigned int queue_pair_start[1];
-  int* large = shared_memory;
-  __shared__ unsigned int large_read_end[1];
-  __shared__ unsigned int large_write_end[1];
-  int* small = shared_memory + queue_size;
-  __shared__ unsigned int small_read_end[1];
-  __shared__ unsigned int small_write_end[1];
+  uint32_t queue_size = next_pow2(table_size);
+  extern __shared__ int32_t shared_memory[];
+  __shared__ int32_t num_active_warps[1];
+  __shared__ uint32_t queue_pair_start[1];
+  int32_t* large = shared_memory;
+  __shared__ uint32_t large_read_end[1];
+  __shared__ uint32_t large_write_end[1];
+  int32_t* small = shared_memory + queue_size;
+  __shared__ uint32_t small_read_end[1];
+  __shared__ uint32_t small_write_end[1];
   if(threadIdx.x == 0) {
     num_active_warps[0] = num_warps;
     queue_pair_start[0] = 0;
@@ -111,8 +111,8 @@ __global__ void build_alias(float** prob, float** alias, int table_size) {
   }
   __syncthreads();
   // loop over PMF, build large queue
-  for(int offset = 0; offset < table_size / blockDim.x + 1; ++offset) {
-    int i = threadIdx.x + offset * blockDim.x;
+  for(int32_t offset = 0; offset < table_size / blockDim.x + 1; ++offset) {
+    int32_t i = threadIdx.x + offset * blockDim.x;
     if(i < table_size) {
       float thread_prob = prob[blockIdx.x][i];
       warp_queue_pair_push(i, thread_prob >= cutoff, queue_size, large, large_read_end, large_write_end, small, small_read_end, small_write_end);
@@ -120,15 +120,15 @@ __global__ void build_alias(float** prob, float** alias, int table_size) {
   }
 
   // grab a set of indices from both queues for the warp to work on
-  for(int warp_num_elements = warpSize; warp_num_elements > 0; /*no increment*/) {
+  for(int32_t warp_num_elements = warpSize; warp_num_elements > 0; /*no increment*/) {
     // try to grab an index, determine how many were grabbed
     warp_num_elements = warpSize; /*may by mutated by warp_queue_pair_pop*/
-    int warp_queue_idx = warp_queue_pair_pop(&warp_num_elements, queue_size, queue_pair_start, large_read_end, small_read_end);
+    int32_t warp_queue_idx = warp_queue_pair_pop(&warp_num_elements, queue_size, queue_pair_start, large_read_end, small_read_end);
     // if got an index, fill it
     if(lane_idx < warp_num_elements) {
-      int thread_large_idx = large[queue_wraparound(warp_queue_idx + lane_idx,queue_size)];
+      int32_t thread_large_idx = large[queue_wraparound(warp_queue_idx + lane_idx,queue_size)];
       float thread_large_prob = prob[blockIdx.x][thread_large_idx];
-      int thread_small_idx = small[queue_wraparound(warp_queue_idx + lane_idx,queue_size)];
+      int32_t thread_small_idx = small[queue_wraparound(warp_queue_idx + lane_idx,queue_size)];
       float thread_small_prob = prob[blockIdx.x][thread_small_idx];
       // determine new, smaller probability and fill the index
       thread_large_prob = (thread_large_prob + thread_small_prob) - cutoff;
@@ -146,20 +146,20 @@ __global__ void build_alias(float** prob, float** alias, int table_size) {
       // final warp: set remaining probabilities to 1
       if(queue_pair_start[0] == small_read_end[0]) {
         // elements still present in large queue
-        for(int offset = 0; offset < (large_read_end[0] - queue_pair_start[0]) / warpSize + 1; ++offset) {
-          int i = queue_pair_start[0] + offset*warpSize + lane_idx;
+        for(int32_t offset = 0; offset < (large_read_end[0] - queue_pair_start[0]) / warpSize + 1; ++offset) {
+          int32_t i = queue_pair_start[0] + offset*warpSize + lane_idx;
           if(i < large_read_end[0]) {
-            int thread_large_idx = large[queue_wraparound(i,queue_size)];
+            int32_t thread_large_idx = large[queue_wraparound(i,queue_size)];
             prob[blockIdx.x][thread_large_idx] = 1.0f;
             alias[blockIdx.x][thread_large_idx] = (float) thread_large_idx;
           }
         }
       } else if(queue_pair_start[0] == large_read_end[0]) {
         // elements still present in small queue
-        for(int offset = 0; offset < (small_read_end[0] - queue_pair_start[0]) / warpSize + 1; ++offset) {
-          int i = queue_pair_start[0] + offset*warpSize + lane_idx;
+        for(int32_t offset = 0; offset < (small_read_end[0] - queue_pair_start[0]) / warpSize + 1; ++offset) {
+          int32_t i = queue_pair_start[0] + offset*warpSize + lane_idx;
           if(i < small_read_end[0]) {
-            int thread_small_idx = large[queue_wraparound(i,queue_size)];
+            int32_t thread_small_idx = large[queue_wraparound(i,queue_size)];
             prob[blockIdx.x][thread_small_idx] = 1.0f;
             alias[blockIdx.x][thread_small_idx] = (float) thread_small_idx;
           }
@@ -171,7 +171,7 @@ __global__ void build_alias(float** prob, float** alias, int table_size) {
   }
 }
 
-SpAlias::SpAlias(int nt, int ts) {
+SpAlias::SpAlias(uint32_t nt, uint32_t ts) {
   // assign class parameters
   num_tables = nt;
   table_size = ts;

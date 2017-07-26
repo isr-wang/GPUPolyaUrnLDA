@@ -37,7 +37,7 @@ __device__ __forceinline__ float draw_poisson(float u, float beta, uint32_t n,
 
 __device__ __forceinline__ float block_reduce_sum(float* block_sum, float thread_sum) {
   // first, perform a warp reduce
-  for(int offset = warpSize/2; offset > 0; offset /= 2) {
+  for(int32_t offset = warpSize/2; offset > 0; offset /= 2) {
     thread_sum += __shfl_down(thread_sum, offset);
   }
 
@@ -62,9 +62,9 @@ __global__ void polya_urn_init(uint32_t* n, uint32_t* C, float beta, uint32_t V,
   skipahead((unsigned long long int) blockIdx.x*blockDim.x + threadIdx.x, &thread_rng);
 
   // loop over array and draw samples
-  for(int offset = 0; offset < V / blockDim.x + 1; ++offset) {
-    int col = threadIdx.x + offset * blockDim.x;
-    int array_idx = col + V * blockIdx.x;
+  for(int32_t offset = 0; offset < V / blockDim.x + 1; ++offset) {
+    int32_t col = threadIdx.x + offset * blockDim.x;
+    int32_t array_idx = col + V * blockIdx.x;
     if(col < V) {
       // draw n_k ~ Pois(C/K + beta)
       float u = curand_uniform(&thread_rng);
@@ -94,9 +94,9 @@ __global__ void polya_urn_sample(float* Phi, uint32_t* n, float beta, uint32_t V
   }
 
   // loop over array and draw samples
-  for(int offset = 0; offset < V / blockDim.x + 1; ++offset) {
-    int col = threadIdx.x + offset * blockDim.x;
-    int array_idx = col + V * blockIdx.x;
+  for(int32_t offset = 0; offset < V / blockDim.x + 1; ++offset) {
+    int32_t col = threadIdx.x + offset * blockDim.x;
+    int32_t array_idx = col + V * blockIdx.x;
     if(col < V) {
       float u = curand_uniform(&thread_rng);
       float pois = draw_poisson(u, beta, n[array_idx], prob, alias, max_lambda, max_value);
@@ -109,9 +109,9 @@ __global__ void polya_urn_sample(float* Phi, uint32_t* n, float beta, uint32_t V
   thread_sum = block_reduce_sum(block_sum, thread_sum);
 
   // normalize draws
-  for(int offset = 0; offset < V / blockDim.x + 1; ++offset) {
-    int col = threadIdx.x + offset * blockDim.x;
-    int array_idx = col + V * blockIdx.x;
+  for(int32_t offset = 0; offset < V / blockDim.x + 1; ++offset) {
+    int32_t col = threadIdx.x + offset * blockDim.x;
+    int32_t array_idx = col + V * blockIdx.x;
     if(col < V) {
       Phi[array_idx] /= thread_sum;
     }
@@ -134,9 +134,9 @@ __global__ void polya_urn_colsums(float* Phi, float* sigma_a, float** prob, uint
   }
 
   // loop over array and compute column sums
-  for(int offset = 0; offset < K / blockDim.x + 1; ++offset) {
-    int row = threadIdx.x + offset * blockDim.x;
-    int array_idx = row + K * blockIdx.x;
+  for(int32_t offset = 0; offset < K / blockDim.x + 1; ++offset) {
+    int32_t row = threadIdx.x + offset * blockDim.x;
+    int32_t array_idx = row + K * blockIdx.x;
     if(row < K) {
       thread_sum += Phi[array_idx];
     }
@@ -151,9 +151,9 @@ __global__ void polya_urn_colsums(float* Phi, float* sigma_a, float** prob, uint
   }
 
   // compute and set alias table probabilities
-  for(int offset = 0; offset < K / blockDim.x + 1; ++offset) {
-    int row = threadIdx.x + offset * blockDim.x;
-    int array_idx = row + K * blockIdx.x;
+  for(int32_t offset = 0; offset < K / blockDim.x + 1; ++offset) {
+    int32_t row = threadIdx.x + offset * blockDim.x;
+    int32_t array_idx = row + K * blockIdx.x;
     if(row < K) {
       prob[blockIdx.x][row] = Phi[array_idx] / thread_sum;
     }

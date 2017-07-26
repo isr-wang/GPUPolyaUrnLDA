@@ -21,11 +21,11 @@ struct Args {
 };
 
 struct Buffer {
-  size_t size;
+  uint32_t size;
   uint32_t* z;
   uint32_t* w;
   uint32_t* d;
-  size_t n_docs;
+  uint32_t n_docs;
   uint32_t* gpu_z;
   uint32_t* gpu_w;
   uint32_t* gpu_d_len;
@@ -36,10 +36,10 @@ struct Buffer {
 
 extern Args* args;
 
-extern "C" void initialize(Args* args, Buffer* buffers, size_t n_buffers);
+extern "C" void initialize(Args* args, Buffer* buffers, uint32_t n_buffers);
 extern "C" void sample_phi();
 extern "C" void sample_z_async(Buffer* buffer);
-extern "C" void cleanup(Buffer* buffers, size_t n_buffers);
+extern "C" void cleanup(Buffer* buffers, uint32_t n_buffers);
 extern "C" void sync_buffer(Buffer* buffer);
 
 }

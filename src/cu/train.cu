@@ -1,5 +1,3 @@
-#include "stdint.h"
-
 #include <cuda_runtime.h>
 #include <cublas_v2.h> // need to add -lcublas to nvcc flags
 #include <curand_kernel.h> // need to add -lcurand to nvcc flags
@@ -42,7 +40,7 @@ __global__ void rand_init(int seed, int subsequence, curandStatePhilox4_32_10_t*
   }
 }
 
-extern "C" void initialize(Args* init_args, Buffer* buffers, size_t n_buffers) {
+extern "C" void initialize(Args* init_args, Buffer* buffers, uint32_t n_buffers) {
   // set the pointer to args struct
   args = init_args;
 
@@ -66,7 +64,7 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, size_t n_buffers) {
   cudaStreamCreate(Phi_stream) >> GPLDA_CHECK;
 
   // allocate memory for buffers
-  for(size_t i = 0; i < n_buffers; ++i) {
+  for(int32_t i = 0; i < n_buffers; ++i) {
     buffers[i].stream = new cudaStream_t;
     cudaStreamCreate(buffers[i].stream) >> GPLDA_CHECK;
     cudaMalloc(&buffers[i].gpu_z, buffers[i].size * sizeof(uint32_t)) >> GPLDA_CHECK;
@@ -92,7 +90,7 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, size_t n_buffers) {
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 }
 
-extern "C" void cleanup(Buffer* buffers, size_t n_buffers) {
+extern "C" void cleanup(Buffer* buffers, uint32_t n_buffers) {
   // deallocate globals
   cudaFree(C) >> GPLDA_CHECK;
   cudaFree(sigma_a) >> GPLDA_CHECK;
@@ -102,7 +100,7 @@ extern "C" void cleanup(Buffer* buffers, size_t n_buffers) {
   delete Phi;
 
   // deallocate memory for buffers
-  for(size_t i = 0; i < n_buffers; ++i) {
+  for(int32_t i = 0; i < n_buffers; ++i) {
     cudaFree(buffers[i].gpu_z) >> GPLDA_CHECK;
     cudaFree(buffers[i].gpu_w) >> GPLDA_CHECK;
     cudaFree(buffers[i].gpu_d_len) >> GPLDA_CHECK;

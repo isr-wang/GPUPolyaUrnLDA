@@ -1,4 +1,4 @@
-use libc::{uint32_t, size_t, c_void};
+use libc::{uint32_t, c_void};
 use std::mem;
 use std::slice;
 use std::ptr;
@@ -6,11 +6,11 @@ use std::ptr;
 #[allow(dead_code)] // remove later
 #[repr(C)]
 pub struct Buffer {
-  size: size_t,
+  size: uint32_t,
   z: *const uint32_t,
   w: *const uint32_t,
   d: *const uint32_t,
-  n_docs: size_t,
+  n_docs: uint32_t,
   gpu_z: *mut c_void,
   gpu_w: *mut c_void,
   gpu_d_len: *mut c_void,
@@ -28,7 +28,7 @@ impl Buffer {
     let d = Vec::with_capacity(size).into_boxed_slice();
     // create buffer
     let b = Buffer {
-      size: size,
+      size: size as u32,
       z: z.as_ptr(),
       w: w.as_ptr(),
       d: d.as_ptr(),
@@ -53,9 +53,9 @@ impl Buffer {
 impl Drop for Buffer {
   fn drop(&mut self) {
     unsafe {
-      let z = Box::new(slice::from_raw_parts(self.z, self.size));
-      let w = Box::new(slice::from_raw_parts(self.w, self.size));
-      let d = Box::new(slice::from_raw_parts(self.d, self.size));
+      let z = Box::new(slice::from_raw_parts(self.z, self.size as usize));
+      let w = Box::new(slice::from_raw_parts(self.w, self.size as usize));
+      let d = Box::new(slice::from_raw_parts(self.d, self.size as usize));
       // at this point, z,w,dLen,dIdx are dropped and deallocated
     }
   }

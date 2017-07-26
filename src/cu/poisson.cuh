@@ -9,9 +9,9 @@ namespace gplda {
 class Poisson {
   public:
     SpAlias* pois_alias;
-    int max_lambda;
-    int max_value;
-    Poisson(int ml, int mv);
+    uint32_t max_lambda;
+    uint32_t max_value;
+    Poisson(uint32_t ml, uint32_t mv);
     ~Poisson();
 };
 

@@ -5,17 +5,17 @@ namespace gplda {
 
 class SpAlias {
   public:
-    int num_tables;
-    int table_size;
+    uint32_t num_tables;
+    uint32_t table_size;
     float** prob;
     float** alias;
-    SpAlias(int nt, int ts);
+    SpAlias(uint32_t nt, uint32_t ts);
     ~SpAlias();
 };
 
-__host__ __device__ unsigned int next_pow2(unsigned int x);
+__host__ __device__ uint32_t next_pow2(uint32_t x);
 
-__global__ void build_alias(float** prob, float** alias, int table_size);
+__global__ void build_alias(float** prob, float** alias, uint32_t table_size);
 
 }
 
