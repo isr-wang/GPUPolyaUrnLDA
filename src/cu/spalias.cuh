@@ -1,6 +1,8 @@
 #ifndef GPLDA_SPALIAS_H
 #define GPLDA_SPALIAS_H
 
+#include "stdint.h"
+
 namespace gplda {
 
 class SpAlias {

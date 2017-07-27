@@ -179,7 +179,7 @@ SpAlias::SpAlias(uint32_t nt, uint32_t ts) {
   float** prob_host = new float*[num_tables];
   float** alias_host = new float*[num_tables];
   // allocate each Alias table
-  for(size_t i = 0; i < num_tables; ++i) {
+  for(int32_t i = 0; i < num_tables; ++i) {
     cudaMalloc(&prob_host[i], table_size * sizeof(float)) >> GPLDA_CHECK;
     cudaMalloc(&alias_host[i], table_size * sizeof(float)) >> GPLDA_CHECK;
   }
@@ -202,7 +202,7 @@ SpAlias::~SpAlias() {
   cudaMemcpy(prob_host, prob, num_tables * sizeof(float*), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
   cudaMemcpy(alias_host, alias, num_tables * sizeof(float*), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
   // free the memory at the arrays being pointed to
-  for(size_t i = 0; i < num_tables; ++i) {
+  for(int32_t i = 0; i < num_tables; ++i) {
     cudaFree(prob_host[i]) >> GPLDA_CHECK;
     cudaFree(alias_host[i]) >> GPLDA_CHECK;
   }

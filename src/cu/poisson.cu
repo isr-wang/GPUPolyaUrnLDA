@@ -6,7 +6,7 @@
 
 namespace gplda {
 
-__global__ void build_poisson_prob(float** prob, float** alias, float beta, uint32_t table_size) {
+__global__ void build_poisson_prob(float** prob, float beta, uint32_t table_size) {
   // determine constants
   float lambda = blockIdx.x + beta; // each block builds one table
   // populate PMF
@@ -26,7 +26,7 @@ Poisson::Poisson(uint32_t ml, uint32_t mv) {
   // allocate alias table
   pois_alias = new SpAlias(max_lambda, max_value);
   // launch kernel to build the alias tables
-  build_poisson_prob<<<max_lambda,96>>>(pois_alias->prob, pois_alias->alias, args->beta, max_value);
+  build_poisson_prob<<<max_lambda,96>>>(pois_alias->prob, args->beta, max_value);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
   build_alias<<<max_lambda,32,2*next_pow2(max_value)*sizeof(int32_t)>>>(pois_alias->prob, pois_alias->alias, max_value);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
