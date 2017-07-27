@@ -19,7 +19,7 @@ inline void operator>>(cudaError_t error, const FileLine &fl) {
 }
 
 #ifdef CUBLAS_API_H_
-const char* cublasGetErrorString(cublasStatus_t status) {
+inline const char* cublasGetErrorString(cublasStatus_t status) {
   switch(status) {
     case CUBLAS_STATUS_SUCCESS: return "CUBLAS_STATUS_SUCCESS";
     case CUBLAS_STATUS_NOT_INITIALIZED: return "CUBLAS_STATUS_NOT_INITIALIZED";
@@ -42,7 +42,7 @@ inline void operator>>(cublasStatus_t error, const FileLine &fl) {
 #endif
 
 #ifdef CURAND_H_
-const char* curandGetErrorString(curandStatus_t status) {
+inline const char* curandGetErrorString(curandStatus_t status) {
   switch (status) {
     case CURAND_STATUS_SUCCESS: return "CURAND_STATUS_SUCCESS";
     case CURAND_STATUS_VERSION_MISMATCH: return "CURAND_STATUS_VERSION_MISMATCH";

@@ -141,7 +141,7 @@ extern "C" void sample_phi() {
   polya_urn_colsums<<<args->V,128,0,*Phi_stream>>>(Phi->dense, sigma_a, alias->prob, args->K);
 
   // build Alias tables
-  build_alias<<<args->V,32,2*next_pow2(args->K)*sizeof(int), *Phi_stream>>>(alias->prob, alias->alias, args->K);
+  build_alias<<<args->V,32,2*next_pow2(args->K)*sizeof(int32_t), *Phi_stream>>>(alias->prob, alias->alias, args->K);
 
   // reset sufficient statistics for n
   cudaMemsetAsync(n->dense, 0, args->K * args->V, *Phi_stream) >> GPLDA_CHECK;

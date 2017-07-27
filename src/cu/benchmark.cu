@@ -2,14 +2,17 @@
 #include <iostream>
 #include "stdint.h"
 #include "train.cuh"
+#include "test/run_tests.cuh"
 
 int main(void) {
+  gplda_test::run_tests();
+
   uint32_t C[5] = {1,1,1,1,1};
   gplda::Args args = {0.1,0.1,10,5,C};
   uint32_t z[5] = {0,0,0,0,0};
   uint32_t w[5] = {0,1,2,3,4};
   uint32_t d[5] = {3,2,0,0,0};
-  size_t n_docs = 2;
+  uint32_t n_docs = 2;
   gplda::Buffer buffer = {5, z, w, d, n_docs, NULL, NULL, NULL, NULL, NULL, NULL};
 
   std::cout << "initializing" << std::endl;
