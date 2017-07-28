@@ -1,6 +1,6 @@
 #include <cuda_runtime.h>
-#include <cublas_v2.h> // need to add -lcublas to nvcc flags
 #include <curand_kernel.h> // need to add -lcurand to nvcc flags
+#include <cublas_v2.h> // need to add -lcublas to nvcc flags
 
 #include "train.cuh"
 #include "dsmatrix.cuh"
@@ -49,9 +49,9 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, uint32_t n_buffers)
   cublasCreate(cublas_handle) >> GPLDA_CHECK;
   cublasSetPointerMode(*cublas_handle, CUBLAS_POINTER_MODE_DEVICE) >> GPLDA_CHECK;
   cudaMalloc(&d_one, sizeof(float)) >> GPLDA_CHECK;
-  cudaMemset(d_one, 1.0f, 1) >> GPLDA_CHECK;
+  cudaMemset(d_one, 1.0f, sizeof(float)) >> GPLDA_CHECK;
   cudaMalloc(&d_zero, sizeof(float)) >> GPLDA_CHECK;
-  cudaMemset(d_zero, 0.0f, 1) >> GPLDA_CHECK;
+  cudaMemset(d_zero, 0.0f, sizeof(float)) >> GPLDA_CHECK;
   Phi_temp = new DSMatrix<float>();
 
   // allocate and initialize cuRAND
@@ -133,9 +133,7 @@ extern "C" void sample_phi() {
   polya_urn_sample<<<args->K,256,0,*Phi_stream>>>(Phi->dense, n->dense, args->beta, args->V, pois->pois_alias->prob, pois->pois_alias->alias, pois->max_lambda, pois->max_value, Phi_rng);
 
   // copy Phi for transpose, set the stream, then transpose Phi
-  cudaMemcpyAsync(Phi_temp->dense, Phi->dense, args->V * args->K * sizeof(float), cudaMemcpyDeviceToDevice, *Phi_stream) >> GPLDA_CHECK;
-  cublasSetStream(*cublas_handle, *Phi_stream) >> GPLDA_CHECK; //
-  cublasSgeam(*cublas_handle, CUBLAS_OP_T, CUBLAS_OP_N, args->K, args->V, d_one, Phi_temp->dense, args->V, d_zero, Phi->dense, args->K, Phi->dense, args->K) >> GPLDA_CHECK;
+  polya_urn_transpose(Phi_stream, Phi->dense, Phi_temp->dense, args->K, args->V, cublas_handle, d_zero, d_one);
 
   // compute sigma_a and alias probabilities
   polya_urn_colsums<<<args->V,128,0,*Phi_stream>>>(Phi->dense, sigma_a, args->alpha, alias->prob, args->K);
@@ -144,7 +142,7 @@ extern "C" void sample_phi() {
   build_alias<<<args->V,32,2*next_pow2(args->K)*sizeof(int32_t), *Phi_stream>>>(alias->prob, alias->alias, args->K);
 
   // reset sufficient statistics for n
-  cudaMemsetAsync(n->dense, 0, args->K * args->V, *Phi_stream) >> GPLDA_CHECK;
+  cudaMemsetAsync(n->dense, 0, args->K * args->V * sizeof(uint32_t), *Phi_stream) >> GPLDA_CHECK;
 
   // don't return until operations completed
   cudaStreamSynchronize(*Phi_stream) >> GPLDA_CHECK;

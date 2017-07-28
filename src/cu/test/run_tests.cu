@@ -13,6 +13,8 @@ void run_tests() {
   test_polya_urn_init();
   std::cout << "testing polya_urn_sample" << std::endl;
   test_polya_urn_sample();
+  std::cout << "testing polya_urn_transpose" << std::endl;
+  test_polya_urn_transpose();
   std::cout << "testing polya_urn_colsums" << std::endl;
   test_polya_urn_colsums();
 
