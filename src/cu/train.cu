@@ -138,7 +138,7 @@ extern "C" void sample_phi() {
   cublasSgeam(*cublas_handle, CUBLAS_OP_T, CUBLAS_OP_N, args->K, args->V, d_one, Phi_temp->dense, args->V, d_zero, Phi->dense, args->K, Phi->dense, args->K) >> GPLDA_CHECK;
 
   // compute sigma_a and alias probabilities
-  polya_urn_colsums<<<args->V,128,0,*Phi_stream>>>(Phi->dense, sigma_a, alias->prob, args->K);
+  polya_urn_colsums<<<args->V,128,0,*Phi_stream>>>(Phi->dense, sigma_a, args->alpha, alias->prob, args->K);
 
   // build Alias tables
   build_alias<<<args->V,32,2*next_pow2(args->K)*sizeof(int32_t), *Phi_stream>>>(alias->prob, alias->alias, args->K);

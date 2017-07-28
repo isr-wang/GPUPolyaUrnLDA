@@ -125,7 +125,7 @@ __global__ void polya_urn_sample(float* Phi, uint32_t* n, float beta, uint32_t V
 }
 
 
-__global__ void polya_urn_colsums(float* Phi, float* sigma_a, float** prob, uint32_t K) {  // initilize variables
+__global__ void polya_urn_colsums(float* Phi, float* sigma_a, float alpha, float** prob, uint32_t K) {  // initilize variables
   // initialize variables
   float thread_sum = 0.0f;
   __shared__ float block_sum[1];
@@ -147,7 +147,7 @@ __global__ void polya_urn_colsums(float* Phi, float* sigma_a, float** prob, uint
 
   // set sigma_a
   if(threadIdx.x == 0) {
-    sigma_a[blockIdx.x] = thread_sum;
+    sigma_a[blockIdx.x] = alpha * thread_sum;
   }
 
   // compute and set alias table probabilities
