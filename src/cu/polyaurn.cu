@@ -32,7 +32,7 @@ __device__ __forceinline__ float draw_poisson(float u, float beta, uint32_t n,
     u = 0.5f; // prevent overflow edge cases
   }
   float mu = beta + ((float) n);
-  return normcdfinvf(u) * mu + mu;
+  return normcdfinvf(u) * sqrtf(mu) + mu;
 }
 
 
