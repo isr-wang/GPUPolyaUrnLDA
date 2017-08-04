@@ -48,10 +48,12 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, uint32_t n_buffers)
   cublas_handle = new cublasHandle_t;
   cublasCreate(cublas_handle) >> GPLDA_CHECK;
   cublasSetPointerMode(*cublas_handle, CUBLAS_POINTER_MODE_DEVICE) >> GPLDA_CHECK;
-  cudaMalloc(&d_one, sizeof(float)) >> GPLDA_CHECK;
-  cudaMemset(d_one, 1.0f, sizeof(float)) >> GPLDA_CHECK;
+  float h_zero = 0.0f;
   cudaMalloc(&d_zero, sizeof(float)) >> GPLDA_CHECK;
-  cudaMemset(d_zero, 0.0f, sizeof(float)) >> GPLDA_CHECK;
+  cudaMemcpy(d_zero, &h_zero, sizeof(float), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
+  float h_one = 1.0f;
+  cudaMalloc(&d_one, sizeof(float)) >> GPLDA_CHECK;
+  cudaMemcpy(d_one, &h_one, sizeof(float), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
   Phi_temp = new DSMatrix<float>();
 
   // allocate and initialize cuRAND

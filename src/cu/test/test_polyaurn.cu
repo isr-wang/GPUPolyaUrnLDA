@@ -35,12 +35,14 @@ void test_polya_urn_transpose() {
   cublasCreate(cublas_handle) >> GPLDA_CHECK;
   cublasSetPointerMode(*cublas_handle, CUBLAS_POINTER_MODE_DEVICE) >> GPLDA_CHECK;
 
+  float h_one = 1.0f; // cudaMemset for some reason doesn't work correctly
+  float h_zero = 0.0f;
   float* d_zero;
   float* d_one;
   cudaMalloc(&d_zero, sizeof(float)) >> GPLDA_CHECK;
-  cudaMemset(d_zero, 0.0f, sizeof(float)) >> GPLDA_CHECK;
+  cudaMemcpy(d_zero, &h_zero, sizeof(float), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
   cudaMalloc(&d_one, sizeof(float)) >> GPLDA_CHECK;
-  cudaMemset(d_one, 1.0f, sizeof(float)) >> GPLDA_CHECK;
+  cudaMemcpy(d_one, &h_one, sizeof(float), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
 
   gplda::polya_urn_transpose(stream, Phi, Phi_temp, 3, 3, cublas_handle, d_zero, d_one);
   cudaStreamSynchronize(*stream);
