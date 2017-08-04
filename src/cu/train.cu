@@ -28,7 +28,6 @@ uint32_t* C;
 curandStatePhilox4_32_10_t* Phi_rng;
 cudaStream_t* Phi_stream;
 cublasHandle_t* cublas_handle;
-curandGenerator_t* curand_generator;
 DSMatrix<float>* Phi_temp;
 float* d_one;
 float* d_zero;
@@ -81,7 +80,7 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, uint32_t n_buffers)
   // allocate globals
   Phi = new DSMatrix<float>();
   n = new DSMatrix<uint32_t>();
-  pois = new Poisson(POIS_MAX_LAMBDA, POIS_MAX_VALUE);
+  pois = new Poisson(POIS_MAX_LAMBDA, POIS_MAX_VALUE, args->beta);
   alias = new SpAlias(args->V, args->K);
   cudaMalloc(&sigma_a,args->V * sizeof(float)) >> GPLDA_CHECK;
   cudaMalloc(&C,args->V * sizeof(uint32_t)) >> GPLDA_CHECK;

@@ -11,7 +11,8 @@ class Poisson {
     SpAlias* pois_alias;
     uint32_t max_lambda;
     uint32_t max_value;
-    Poisson(uint32_t ml, uint32_t mv);
+    float beta;
+    Poisson(uint32_t ml, uint32_t mv, float b);
     ~Poisson();
 };
 

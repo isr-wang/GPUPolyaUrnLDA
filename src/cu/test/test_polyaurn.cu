@@ -1,4 +1,5 @@
 #include "test_polyaurn.cuh"
+#include "../poisson.cuh"
 #include "../polyaurn.cuh"
 #include "../error.cuh"
 #include "assert.h"
@@ -7,8 +8,68 @@ using gplda::FileLine;
 
 namespace gplda_test {
 
-void test_polya_urn_init() {
+__global__ void rand_init(curandStatePhilox4_32_10_t* rng) {
+  if(threadIdx.x == 0 && blockIdx.x == 0) {
+    curand_init((unsigned long long) 0, (unsigned long long) 0, (unsigned long long) 0, rng);
+  }
+}
 
+void test_polya_urn_init() {
+  uint32_t K = 1000;
+  uint32_t V = 5;
+  float beta = 0.01;
+  uint32_t n_host[5*1000];
+  uint32_t C_host[5] = {1*K, 10*K, 100*K, 1000*K, 10000*K}; // K=3 so E(n_k) = [1, 10, 100, 1000, 10000]
+  uint32_t n_sum[5] = {0,0,0,0,0};
+  uint32_t n_ssq[5] = {0,0,0,0,0};
+
+  uint32_t* n;
+  cudaMalloc(&n, K * V * sizeof(uint32_t)) >> GPLDA_CHECK;
+
+  uint32_t* C;
+  cudaMalloc(&C, V * sizeof(uint32_t)) >> GPLDA_CHECK;
+  cudaMemcpy(C, C_host, V * sizeof(uint32_t), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
+
+  curandStatePhilox4_32_10_t* Phi_rng;
+  cudaMalloc(&Phi_rng, sizeof(curandStatePhilox4_32_10_t)) >> GPLDA_CHECK;
+  rand_init<<<1,1>>>(Phi_rng);
+  cudaDeviceSynchronize() >> GPLDA_CHECK;
+
+  gplda::Poisson* pois = new gplda::Poisson(100, 200, beta);
+
+  gplda::polya_urn_init<<<K,32>>>(n, C, beta, V, pois->pois_alias->prob, pois->pois_alias->alias, pois->max_lambda, pois->max_value, Phi_rng);
+  cudaDeviceSynchronize() >> GPLDA_CHECK;
+
+  cudaMemcpy(n_host, n, K * V * sizeof(uint32_t), cudaMemcpyDeviceToHost);
+
+  // check mean by computing sum
+  for(int32_t j = 0; j < K; ++j) {
+    for(int32_t i = 0; i < V; ++i) {
+      n_sum[i] += n_host[j*V + i];
+    }
+  }
+
+  // check var by computing sum square
+  for(int32_t j = 0; j < K; ++j) {
+    for(int32_t i = 0; i < V; ++i) {
+      n_ssq[i] += ((n_host[j*V + i] - (n_sum[i] / K)) * (n_host[j*V + i] - (n_sum[i] / K)));
+    }
+  }
+
+  assert(n_sum[0] / K <= 2);
+  assert(n_sum[1] / K >= 9 && n_sum[1] / K <= 11);
+  assert(n_sum[2] / K >= 90 && n_sum[2] / K <= 110);
+  assert(n_sum[3] / K >= 900 && n_sum[3] / K <= 1100);
+  assert(n_sum[4] / K >= 9000 && n_sum[4] / K <= 11000);
+
+  assert(n_ssq[0] / K <= 2);
+  assert(n_ssq[1] / K >= 9 && n_ssq[1] / K <= 11);
+  assert(n_ssq[2] / K >= 90 && n_ssq[2] / K <= 110);
+  assert(n_ssq[3] / K >= 900 && n_ssq[3] / K <= 1100);
+  assert(n_ssq[4] / K >= 9000 && n_ssq[4] / K <= 11000);
+
+  cudaFree(n);
+  cudaFree(C);
 }
 
 void test_polya_urn_sample() {
