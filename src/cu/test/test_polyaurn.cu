@@ -70,9 +70,50 @@ void test_polya_urn_init() {
 
   cudaFree(n);
   cudaFree(C);
+  cudaFree(Phi_rng);
+  delete pois;
 }
 
 void test_polya_urn_sample() {
+  float tolerance = 0.02f; // large to allow for randomness
+
+  uint32_t n_host[9] = {1,10,100,1,1,1,1000,1000,1000};
+  float Phi_host[9];
+
+  float* Phi;
+  cudaMalloc(&Phi, 9 * sizeof(float)) >> GPLDA_CHECK;
+
+  uint32_t* n;
+  cudaMalloc(&n, 9 * sizeof(uint32_t)) >> GPLDA_CHECK;
+
+  cudaMemcpy(n, n_host, 9 * sizeof(uint32_t), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
+
+  curandStatePhilox4_32_10_t* Phi_rng;
+  cudaMalloc(&Phi_rng, sizeof(curandStatePhilox4_32_10_t)) >> GPLDA_CHECK;
+  rand_init<<<1,1>>>(Phi_rng);
+  cudaDeviceSynchronize() >> GPLDA_CHECK;
+
+  gplda::Poisson* pois = new gplda::Poisson(100, 200, 0.01f);
+
+  gplda::polya_urn_sample<<<3,32>>>(Phi, n, 0.01f, 3, pois->pois_alias->prob, pois->pois_alias->alias, pois->max_lambda, pois->max_value, Phi_rng);
+  cudaDeviceSynchronize() >> GPLDA_CHECK;
+
+  cudaMemcpy(Phi_host, Phi, 9 * sizeof(float), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
+
+  assert(abs(Phi_host[0] - 0.01f) < tolerance);
+  assert(abs(Phi_host[1] - 0.09f) < tolerance);
+  assert(abs(Phi_host[2] - 0.9f) < tolerance);
+  assert(abs(Phi_host[3] - 0.5f) < tolerance);
+  assert(abs(Phi_host[4] - 0.0f) < tolerance);
+  assert(abs(Phi_host[5] - 0.5f) < tolerance);
+  assert(abs(Phi_host[6] - 0.33f) < tolerance);
+  assert(abs(Phi_host[7] - 0.33f) < tolerance);
+  assert(abs(Phi_host[8] - 0.33f) < tolerance);
+
+  cudaFree(Phi);
+  cudaFree(n);
+  cudaFree(Phi_rng);
+  delete pois;
 
 }
 
@@ -205,17 +246,17 @@ void test_polya_urn_colsums() {
   cudaMemcpy(prob_host_2, prob_2, 3 * sizeof(float), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
   cudaMemcpy(prob_host_3, prob_3, 3 * sizeof(float), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
 
-  assert(prob_host_1[0] - (0.3f / (0.3f + 0.2f + 0.1f)) < tolerance);
-  assert(prob_host_1[1] - (0.2f / (0.3f + 0.2f + 0.1f)) < tolerance);
-  assert(prob_host_1[2] - (0.1f / (0.3f + 0.2f + 0.1f)) < tolerance);
+  assert(abs(prob_host_1[0] - (0.3f / (0.3f + 0.2f + 0.1f))) < tolerance);
+  assert(abs(prob_host_1[1] - (0.2f / (0.3f + 0.2f + 0.1f))) < tolerance);
+  assert(abs(prob_host_1[2] - (0.1f / (0.3f + 0.2f + 0.1f))) < tolerance);
 
-  assert(prob_host_2[0] - (0.3f / (0.3f + 0.5f + 0.1f)) < tolerance);
-  assert(prob_host_2[1] - (0.5f / (0.3f + 0.5f + 0.1f)) < tolerance);
-  assert(prob_host_2[2] - (0.1f / (0.3f + 0.5f + 0.1f)) < tolerance);
+  assert(abs(prob_host_2[0] - (0.3f / (0.3f + 0.5f + 0.1f))) < tolerance);
+  assert(abs(prob_host_2[1] - (0.5f / (0.3f + 0.5f + 0.1f))) < tolerance);
+  assert(abs(prob_host_2[2] - (0.1f / (0.3f + 0.5f + 0.1f))) < tolerance);
 
-  assert(prob_host_3[0] - (0.4f / (0.4f + 0.3f + 0.8f)) < tolerance);
-  assert(prob_host_3[1] - (0.3f / (0.4f + 0.3f + 0.8f)) < tolerance);
-  assert(prob_host_3[2] - (0.8f / (0.4f + 0.3f + 0.8f)) < tolerance);
+  assert(abs(prob_host_3[0] - (0.4f / (0.4f + 0.3f + 0.8f))) < tolerance);
+  assert(abs(prob_host_3[1] - (0.3f / (0.4f + 0.3f + 0.8f))) < tolerance);
+  assert(abs(prob_host_3[2] - (0.8f / (0.4f + 0.3f + 0.8f))) < tolerance);
 
   cudaFree(Phi) >> GPLDA_CHECK;
   cudaFree(sigma_a) >> GPLDA_CHECK;
