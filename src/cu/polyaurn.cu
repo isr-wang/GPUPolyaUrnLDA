@@ -136,10 +136,17 @@ void polya_urn_transpose(cudaStream_t* stream, float* Phi, float* Phi_temp, uint
   cudaMemcpyAsync(Phi_temp, Phi, V * K * sizeof(float), cudaMemcpyDeviceToDevice, *stream) >> GPLDA_CHECK;
   cublasSetStream(*handle, *stream) >> GPLDA_CHECK; //
   cublasSgeam(*handle, CUBLAS_OP_T, CUBLAS_OP_N, K, V, d_one, Phi_temp, V, d_zero, Phi, K, Phi, K) >> GPLDA_CHECK;
-
 }
 
-
+__global__ void polya_urn_reset(uint32_t* n, uint32_t V) {
+  for(int32_t offset = 0; offset < V / blockDim.x + 1; ++offset) {
+    int32_t col = threadIdx.x + offset * blockDim.x;
+    int32_t array_idx = col + V * blockIdx.x;
+    if(col < V) {
+      n[array_idx] = 0;
+    }
+  }
+}
 
 
 __global__ void polya_urn_colsums(float* Phi, float* sigma_a, float alpha, float** prob, uint32_t K) {  // initilize variables

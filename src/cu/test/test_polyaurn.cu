@@ -71,6 +71,31 @@ void test_polya_urn_transpose() {
   cudaFree(Phi_temp);
 }
 
+void test_polya_urn_reset() {
+  uint32_t n_host[9] = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+  uint32_t* n;
+
+  cudaMalloc(&n, 9 * sizeof(uint32_t)) >> GPLDA_CHECK;
+  cudaMemcpy(n, n_host, 9 * sizeof(uint32_t), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
+
+  gplda::polya_urn_reset<<<3, 128>>>(n, 3);
+  cudaDeviceSynchronize() >> GPLDA_CHECK;
+
+  cudaMemcpy(n_host, n, 9 * sizeof(uint32_t), cudaMemcpyDeviceToHost);
+
+  assert(n_host[0] == 0);
+  assert(n_host[1] == 0);
+  assert(n_host[2] == 0);
+  assert(n_host[3] == 0);
+  assert(n_host[4] == 0);
+  assert(n_host[5] == 0);
+  assert(n_host[6] == 0);
+  assert(n_host[7] == 0);
+  assert(n_host[8] == 0);
+
+  cudaFree(n);
+}
+
 void test_polya_urn_colsums() {
   float tolerance = 0.0001f;
   // 0.3 0.3 0.4
