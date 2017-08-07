@@ -7,6 +7,7 @@
 #include "error.cuh"
 #include "poisson.cuh"
 #include "polyaurn.cuh"
+#include "random.cuh"
 #include "spalias.cuh"
 #include "warpsample.cuh"
 
@@ -31,13 +32,6 @@ cublasHandle_t* cublas_handle;
 DSMatrix<float>* Phi_temp;
 float* d_one;
 float* d_zero;
-
-// initializer for random number generator
-__global__ void rand_init(int seed, int subsequence, curandStatePhilox4_32_10_t* rng) {
-  if(threadIdx.x == 0 && blockIdx.x == 0) {
-    curand_init((unsigned long long) seed, (unsigned long long) subsequence, (unsigned long long) 0, rng);
-  }
-}
 
 extern "C" void initialize(Args* init_args, Buffer* buffers, uint32_t n_buffers) {
   // set the pointer to args struct
@@ -89,6 +83,8 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, uint32_t n_buffers)
   // run device init code
   polya_urn_init<<<args->K,256>>>(n->dense, C, args->beta, args->V, pois->pois_alias->prob, pois->pois_alias->alias, pois->max_lambda, pois->max_value, Phi_rng);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
+  rand_advance<<<1,1>>>(args->K*args->V,Phi_rng);
+  cudaDeviceSynchronize() >> GPLDA_CHECK;
 }
 
 extern "C" void cleanup(Buffer* buffers, uint32_t n_buffers) {
@@ -132,6 +128,7 @@ extern "C" void cleanup(Buffer* buffers, uint32_t n_buffers) {
 extern "C" void sample_phi() {
   // draw Phi ~ PPU(n + beta)
   polya_urn_sample<<<args->K,256,0,*Phi_stream>>>(Phi->dense, n->dense, args->beta, args->V, pois->pois_alias->prob, pois->pois_alias->alias, pois->max_lambda, pois->max_value, Phi_rng);
+  rand_advance<<<1,1,0,*Phi_stream>>>(args->K*args->V,Phi_rng);
 
   // copy Phi for transpose, set the stream, then transpose Phi
   polya_urn_transpose(Phi_stream, Phi->dense, Phi_temp->dense, args->K, args->V, cublas_handle, d_zero, d_one);

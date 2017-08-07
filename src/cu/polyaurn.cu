@@ -73,12 +73,6 @@ __global__ void polya_urn_init(uint32_t* n, uint32_t* C, float beta, uint32_t V,
       n[array_idx] = (uint32_t) pois;
     }
   }
-
-  // write the updated RNG state to global memory
-  __syncthreads();
-  if(threadIdx.x == gridDim.x*blockDim.x + blockDim.x) {
-    rng[0] = thread_rng;
-  }
 }
 
 
@@ -121,12 +115,6 @@ __global__ void polya_urn_sample(float* Phi, uint32_t* n, float beta, uint32_t V
     if(col < V) {
       Phi[array_idx] /= thread_sum;
     }
-  }
-
-  // write the updated RNG state to global memory
-  if(threadIdx.x == gridDim.x*blockDim.x + blockDim.x) {
-    // no need to synchronize here because we already did in block_reduce_sum
-    rng[0] = thread_rng;
   }
 }
 

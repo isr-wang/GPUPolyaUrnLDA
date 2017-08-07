@@ -1,18 +1,13 @@
 #include "test_polyaurn.cuh"
 #include "../poisson.cuh"
 #include "../polyaurn.cuh"
+#include "../random.cuh"
 #include "../error.cuh"
 #include "assert.h"
 
 using gplda::FileLine;
 
 namespace gplda_test {
-
-__global__ void rand_init(curandStatePhilox4_32_10_t* rng) {
-  if(threadIdx.x == 0 && blockIdx.x == 0) {
-    curand_init((unsigned long long) 0, (unsigned long long) 0, (unsigned long long) 0, rng);
-  }
-}
 
 void test_polya_urn_init() {
   uint32_t K = 1000;
@@ -32,7 +27,7 @@ void test_polya_urn_init() {
 
   curandStatePhilox4_32_10_t* Phi_rng;
   cudaMalloc(&Phi_rng, sizeof(curandStatePhilox4_32_10_t)) >> GPLDA_CHECK;
-  rand_init<<<1,1>>>(Phi_rng);
+  gplda::rand_init<<<1,1>>>(0,0,Phi_rng);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 
   gplda::Poisson* pois = new gplda::Poisson(100, 200, beta);
@@ -90,7 +85,7 @@ void test_polya_urn_sample() {
 
   curandStatePhilox4_32_10_t* Phi_rng;
   cudaMalloc(&Phi_rng, sizeof(curandStatePhilox4_32_10_t)) >> GPLDA_CHECK;
-  rand_init<<<1,1>>>(Phi_rng);
+  gplda::rand_init<<<1,1>>>(0,0,Phi_rng);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 
   gplda::Poisson* pois = new gplda::Poisson(100, 200, 0.01f);
