@@ -1,8 +1,5 @@
 #include "warpsample.cuh"
 #include <thrust/system/cuda/detail/cub/block/block_scan.cuh>
-//#include <thrust/scan.h>
-//#include <thrust/device_ptr.h>
-//#include <thrust/execution_policy.h>
 
 namespace gplda {
 

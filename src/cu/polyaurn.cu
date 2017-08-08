@@ -1,6 +1,8 @@
 #include "polyaurn.cuh"
 #include "assert.h"
 #include "error.cuh"
+#include <thrust/system/cuda/detail/cub/block/block_scan.cuh> // workaround for CUB missing include
+#include <thrust/system/cuda/detail/cub/block/block_reduce.cuh>
 
 namespace gplda {
 
@@ -36,25 +38,6 @@ __device__ __forceinline__ float draw_poisson(float u, float beta, uint32_t n,
 }
 
 
-__device__ __forceinline__ float block_reduce_sum(float* block_sum, float thread_sum) {
-  // first, perform a warp reduce
-  for(int32_t offset = warpSize/2; offset > 0; offset /= 2) {
-    thread_sum += __shfl_down(thread_sum, offset);
-  }
-
-  // then, add result to shared memory
-  if(threadIdx.x % warpSize == 0) {
-    atomicAdd(block_sum, thread_sum);
-  }
-
-  // ensure all threads finish writing
-  __syncthreads();
-
-  // return new value to all threads
-  return block_sum[0];
-}
-
-
 __global__ void polya_urn_init(uint32_t* n, uint32_t* C, float beta, uint32_t V,
     float** prob, float** alias, uint32_t max_lambda, uint32_t max_value,
     curandStatePhilox4_32_10_t* rng) {
@@ -86,13 +69,11 @@ __global__ void polya_urn_sample(float* Phi, uint32_t* n, float beta, uint32_t V
     curandStatePhilox4_32_10_t* rng) {
   // initialize variables
   float thread_sum = 0.0f;
+  __shared__ float block_sum[1];
   curandStatePhilox4_32_10_t thread_rng = rng[0];
   skipahead((unsigned long long int) blockIdx.x*blockDim.x + threadIdx.x, &thread_rng);
-  __shared__ float block_sum[1];
-  if(threadIdx.x == 0) {
-    block_sum[0] = 0.0f;
-  }
-  __syncthreads();
+  typedef cub::BlockReduce<float, GPLDA_POLYA_URN_SAMPLE_BLOCKDIM, cub::BLOCK_REDUCE_RAKING_COMMUTATIVE_ONLY> BlockReduce;
+  __shared__ typename BlockReduce::TempStorage temp;
 
   // loop over array and draw samples
   for(int32_t offset = 0; offset < V / blockDim.x + 1; ++offset) {
@@ -107,7 +88,12 @@ __global__ void polya_urn_sample(float* Phi, uint32_t* n, float beta, uint32_t V
   }
 
   // add up thread sums, synchronize, and broadcast
-  thread_sum = block_reduce_sum(block_sum, thread_sum);
+  thread_sum = BlockReduce(temp).Reduce(thread_sum, cub::Sum());
+  if(threadIdx.x == 0) {
+    block_sum[0] = thread_sum;
+  }
+  __syncthreads();
+  thread_sum = block_sum[0];
 
   // normalize draws
   for(int32_t offset = 0; offset < V / blockDim.x + 1; ++offset) {
@@ -142,10 +128,8 @@ __global__ void polya_urn_colsums(float* Phi, float* sigma_a, float alpha, float
   // initialize variables
   float thread_sum = 0.0f;
   __shared__ float block_sum[1];
-  if(threadIdx.x == 0) {
-    block_sum[0] = 0.0f;
-  }
-  __syncthreads();
+  typedef cub::BlockReduce<float, GPLDA_POLYA_URN_COLSUMS_BLOCKDIM, cub::BLOCK_REDUCE_RAKING_COMMUTATIVE_ONLY> BlockReduce;
+  __shared__ typename BlockReduce::TempStorage temp;
 
   // loop over array and compute column sums
   for(int32_t offset = 0; offset < K / blockDim.x + 1; ++offset) {
@@ -157,7 +141,12 @@ __global__ void polya_urn_colsums(float* Phi, float* sigma_a, float alpha, float
   }
 
   // add up thread sums, synchronize, and broadcast
-  thread_sum = block_reduce_sum(block_sum, thread_sum);
+  thread_sum = BlockReduce(temp).Reduce(thread_sum, cub::Sum());
+  if(threadIdx.x == 0) {
+    block_sum[0] = thread_sum;
+  }
+  __syncthreads();
+  thread_sum = block_sum[0];
 
   // set sigma_a
   if(threadIdx.x == 0) {
