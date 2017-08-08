@@ -27,7 +27,7 @@ void test_polya_urn_init() {
 
   curandStatePhilox4_32_10_t* Phi_rng;
   cudaMalloc(&Phi_rng, sizeof(curandStatePhilox4_32_10_t)) >> GPLDA_CHECK;
-  gplda::rand_init<<<1,1>>>(0,0,Phi_rng);
+  gplda::rng_init<<<1,1>>>(0,0,Phi_rng);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 
   gplda::Poisson* pois = new gplda::Poisson(100, 200, beta);
@@ -85,7 +85,7 @@ void test_polya_urn_sample() {
 
   curandStatePhilox4_32_10_t* Phi_rng;
   cudaMalloc(&Phi_rng, sizeof(curandStatePhilox4_32_10_t)) >> GPLDA_CHECK;
-  gplda::rand_init<<<1,1>>>(0,0,Phi_rng);
+  gplda::rng_init<<<1,1>>>(0,0,Phi_rng);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 
   gplda::Poisson* pois = new gplda::Poisson(100, 200, 0.01f);
@@ -109,7 +109,6 @@ void test_polya_urn_sample() {
   cudaFree(n);
   cudaFree(Phi_rng);
   delete pois;
-
 }
 
 void test_polya_urn_transpose() {

@@ -51,7 +51,7 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, uint32_t n_buffers)
 
   // allocate and initialize cuRAND
   cudaMalloc(&Phi_rng, sizeof(curandStatePhilox4_32_10_t)) >> GPLDA_CHECK;
-  rand_init<<<1,1>>>(0, 0, Phi_rng);
+  rng_init<<<1,1>>>(0, 0, Phi_rng);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 
   // allocate and initialize streams
@@ -67,7 +67,7 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, uint32_t n_buffers)
     cudaMalloc(&buffers[i].gpu_d_len, buffers[i].size * sizeof(uint32_t)) >> GPLDA_CHECK;
     cudaMalloc(&buffers[i].gpu_d_idx, buffers[i].size * sizeof(uint32_t)) >> GPLDA_CHECK;
     cudaMalloc(&buffers[i].gpu_rng, sizeof(curandStatePhilox4_32_10_t)) >> GPLDA_CHECK;
-    rand_init<<<1,1>>>(0, i + 1, buffers[i].gpu_rng);
+    rng_init<<<1,1>>>(0, i + 1, buffers[i].gpu_rng);
     cudaDeviceSynchronize() >> GPLDA_CHECK;
   }
 
@@ -83,7 +83,7 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, uint32_t n_buffers)
   // run device init code
   polya_urn_init<<<args->K,256>>>(n->dense, C, args->beta, args->V, pois->pois_alias->prob, pois->pois_alias->alias, pois->max_lambda, pois->max_value, Phi_rng);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
-  rand_advance<<<1,1>>>(args->K*args->V,Phi_rng);
+  rng_advance<<<1,1>>>(args->K*args->V,Phi_rng);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 }
 
@@ -128,7 +128,7 @@ extern "C" void cleanup(Buffer* buffers, uint32_t n_buffers) {
 extern "C" void sample_phi() {
   // draw Phi ~ PPU(n + beta)
   polya_urn_sample<<<args->K,GPLDA_POLYA_URN_SAMPLE_BLOCKDIM,0,*Phi_stream>>>(Phi->dense, n->dense, args->beta, args->V, pois->pois_alias->prob, pois->pois_alias->alias, pois->max_lambda, pois->max_value, Phi_rng);
-  rand_advance<<<1,1,0,*Phi_stream>>>(args->K*args->V,Phi_rng);
+  rng_advance<<<1,1,0,*Phi_stream>>>(args->K*args->V,Phi_rng);
 
   // copy Phi for transpose, set the stream, then transpose Phi
   polya_urn_transpose(Phi_stream, Phi->dense, Phi_temp->dense, args->K, args->V, cublas_handle, d_zero, d_one);
@@ -155,7 +155,7 @@ extern "C" void sample_z_async(Buffer* buffer) {
 
   // sample the topic indicators
   warp_sample_topics<<<buffer->n_docs,32,0,*buffer->stream>>>(buffer->size, buffer->n_docs, buffer->gpu_z, buffer->gpu_w, buffer->gpu_d_len, buffer->gpu_d_idx, alias->prob, alias->alias, buffer->gpu_rng);
-  rand_advance<<<1,1,0,*buffer->stream>>>(buffer->size,Phi_rng);
+  rng_advance<<<1,1,0,*buffer->stream>>>(buffer->size,Phi_rng);
 
   // copy z back to host
   cudaMemcpyAsync(buffer->z, buffer->gpu_z, buffer->size, cudaMemcpyDeviceToHost,*buffer->stream) >> GPLDA_CHECK;
