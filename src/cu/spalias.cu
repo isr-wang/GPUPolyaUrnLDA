@@ -160,7 +160,7 @@ __global__ void build_alias(float** prob, float** alias, uint32_t table_size) {
         for(int32_t offset = 0; offset < (small_read_end[0] - queue_pair_start[0]) / warpSize + 1; ++offset) {
           int32_t i = queue_pair_start[0] + offset*warpSize + lane_idx;
           if(i < small_read_end[0]) {
-            int32_t thread_small_idx = large[queue_wraparound(i,queue_size)];
+            int32_t thread_small_idx = small[queue_wraparound(i,queue_size)];
             prob[blockIdx.x][thread_small_idx] = 0.0f;
             alias[blockIdx.x][thread_small_idx] = (float) thread_small_idx;
           }
