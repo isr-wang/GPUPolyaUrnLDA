@@ -92,6 +92,7 @@ __global__ void polya_urn_sample(float* Phi, uint32_t* n, float beta, uint32_t V
   if(threadIdx.x == 0) {
     block_sum[0] = 0.0f;
   }
+  __syncthreads();
 
   // loop over array and draw samples
   for(int32_t offset = 0; offset < V / blockDim.x + 1; ++offset) {
@@ -144,6 +145,7 @@ __global__ void polya_urn_colsums(float* Phi, float* sigma_a, float alpha, float
   if(threadIdx.x == 0) {
     block_sum[0] = 0.0f;
   }
+  __syncthreads();
 
   // loop over array and compute column sums
   for(int32_t offset = 0; offset < K / blockDim.x + 1; ++offset) {

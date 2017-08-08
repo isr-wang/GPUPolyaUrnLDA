@@ -127,14 +127,14 @@ extern "C" void cleanup(Buffer* buffers, uint32_t n_buffers) {
 
 extern "C" void sample_phi() {
   // draw Phi ~ PPU(n + beta)
-  polya_urn_sample<<<args->K,256,0,*Phi_stream>>>(Phi->dense, n->dense, args->beta, args->V, pois->pois_alias->prob, pois->pois_alias->alias, pois->max_lambda, pois->max_value, Phi_rng);
+  polya_urn_sample<<<args->K,GPLDA_POLYA_URN_SAMPLE_BLOCKDIM,0,*Phi_stream>>>(Phi->dense, n->dense, args->beta, args->V, pois->pois_alias->prob, pois->pois_alias->alias, pois->max_lambda, pois->max_value, Phi_rng);
   rand_advance<<<1,1,0,*Phi_stream>>>(args->K*args->V,Phi_rng);
 
   // copy Phi for transpose, set the stream, then transpose Phi
   polya_urn_transpose(Phi_stream, Phi->dense, Phi_temp->dense, args->K, args->V, cublas_handle, d_zero, d_one);
 
   // compute sigma_a and alias probabilities
-  polya_urn_colsums<<<args->V,128,0,*Phi_stream>>>(Phi->dense, sigma_a, args->alpha, alias->prob, args->K);
+  polya_urn_colsums<<<args->V,GPLDA_POLYA_URN_COLSUMS_BLOCKDIM,0,*Phi_stream>>>(Phi->dense, sigma_a, args->alpha, alias->prob, args->K);
 
   // build Alias tables
   build_alias<<<args->V,32,2*next_pow2(args->K)*sizeof(int32_t), *Phi_stream>>>(alias->prob, alias->alias, args->K);
@@ -151,10 +151,11 @@ extern "C" void sample_z_async(Buffer* buffer) {
   cudaMemcpyAsync(buffer->gpu_z, buffer->z, buffer->size, cudaMemcpyHostToDevice,*buffer->stream) >> GPLDA_CHECK; // copy z to GPU
   cudaMemcpyAsync(buffer->gpu_w, buffer->w, buffer->size, cudaMemcpyHostToDevice,*buffer->stream) >> GPLDA_CHECK; // copy w to GPU
   cudaMemcpyAsync(buffer->gpu_d_len, buffer->d, buffer->n_docs, cudaMemcpyHostToDevice,*buffer->stream) >> GPLDA_CHECK;
-  compute_d_idx(*buffer->stream, buffer->gpu_d_len, buffer->gpu_d_idx, buffer->n_docs);
+  compute_d_idx<<<1,GPLDA_COMPUTE_D_IDX_BLOCKDIM,0,*buffer->stream>>>(buffer->gpu_d_len, buffer->gpu_d_idx, buffer->n_docs);
 
   // sample the topic indicators
-  warp_sample_topics<<<buffer->n_docs,32,0,*buffer->stream>>>(buffer->size, buffer->n_docs, buffer->gpu_z, buffer->gpu_w, buffer->gpu_d_len, buffer->gpu_d_idx, buffer->gpu_rng);
+  warp_sample_topics<<<buffer->n_docs,32,0,*buffer->stream>>>(buffer->size, buffer->n_docs, buffer->gpu_z, buffer->gpu_w, buffer->gpu_d_len, buffer->gpu_d_idx, alias->prob, alias->alias, buffer->gpu_rng);
+  rand_advance<<<1,1,0,*buffer->stream>>>(buffer->size,Phi_rng);
 
   // copy z back to host
   cudaMemcpyAsync(buffer->z, buffer->gpu_z, buffer->size, cudaMemcpyDeviceToHost,*buffer->stream) >> GPLDA_CHECK;

@@ -110,6 +110,7 @@ __global__ void build_alias(float** prob, float** alias, uint32_t table_size) {
     small_write_end[0] = 0;
   }
   __syncthreads();
+
   // loop over PMF, build large queue
   for(int32_t offset = 0; offset < table_size / blockDim.x + 1; ++offset) {
     int32_t i = threadIdx.x + offset * blockDim.x;
