@@ -11,22 +11,22 @@ void test_build_alias() {
   uint32_t table_size = 10;
 
   float** prob;
-  float** alias;
+  uint32_t** alias;
 
   cudaMalloc(&prob, sizeof(float*)) >> GPLDA_CHECK;
-  cudaMalloc(&alias, sizeof(float*)) >> GPLDA_CHECK;
+  cudaMalloc(&alias, sizeof(uint32_t*)) >> GPLDA_CHECK;
 
   float** prob_host[1];
-  float** alias_host[1];
+  uint32_t** alias_host[1];
 
   float prob_host_values[10] = {0.9,0.02,0.01,0.01,0.01, 0.01,0.01,0.01,0.01,0.01};
-  float alias_host_values[10];
+  uint32_t alias_host_values[10];
 
   cudaMalloc(&prob_host[0], table_size * sizeof(float)) >> GPLDA_CHECK;
-  cudaMalloc(&alias_host[0], table_size * sizeof(float)) >> GPLDA_CHECK;
+  cudaMalloc(&alias_host[0], table_size * sizeof(uint32_t)) >> GPLDA_CHECK;
 
   cudaMemcpy(prob, prob_host, sizeof(float*), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
-  cudaMemcpy(alias, alias_host, sizeof(float*), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
+  cudaMemcpy(alias, alias_host, sizeof(uint32_t*), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
 
   cudaMemcpy(prob_host[0], prob_host_values, table_size * sizeof(float), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
 
@@ -34,11 +34,11 @@ void test_build_alias() {
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 
   cudaMemcpy(prob_host_values, prob_host[0], table_size * sizeof(float), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
-  cudaMemcpy(alias_host_values, alias_host[0], table_size * sizeof(float), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
+  cudaMemcpy(alias_host_values, alias_host[0], table_size * sizeof(uint32_t), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
 
   for(int32_t i = 0; i < table_size; ++i) {
     assert(prob_host_values[i] <= 0.02f);
-    assert(alias_host_values[i] == 0.0f);
+    assert(alias_host_values[i] == 0);
   }
 
   cudaFree(prob_host[0]) >> GPLDA_CHECK;

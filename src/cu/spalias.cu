@@ -85,7 +85,7 @@ __device__ __forceinline__ int32_t warp_queue_pair_pop(/*mut*/ int32_t* size, ui
   return read_start;
 }
 
-__global__ void build_alias(float** prob, float** alias, uint32_t table_size) {
+__global__ void build_alias(float** prob, uint32_t** alias, uint32_t table_size) {
   int32_t num_warps = (blockDim.x - 1) / warpSize + 1;
   int32_t lane_idx = threadIdx.x % warpSize;
   // determine constants
@@ -133,7 +133,7 @@ __global__ void build_alias(float** prob, float** alias, uint32_t table_size) {
       float thread_small_prob = prob[blockIdx.x][thread_small_idx];
       // determine new, smaller probability and fill the index
       thread_large_prob = (thread_large_prob + thread_small_prob) - cutoff;
-      alias[blockIdx.x][thread_small_idx] = (float) thread_large_idx;
+      alias[blockIdx.x][thread_small_idx] = thread_large_idx;
       prob[blockIdx.x][thread_large_idx] = thread_large_prob;
       // finally, push remaining values back onto queues
       warp_queue_pair_push(thread_large_idx, thread_large_prob >= cutoff, queue_size, large, large_read_end, large_write_end, small, small_read_end, small_write_end);
@@ -152,7 +152,7 @@ __global__ void build_alias(float** prob, float** alias, uint32_t table_size) {
           if(i < large_read_end[0]) {
             int32_t thread_large_idx = large[queue_wraparound(i,queue_size)];
             prob[blockIdx.x][thread_large_idx] = 1.0f;
-            alias[blockIdx.x][thread_large_idx] = (float) thread_large_idx;
+            alias[blockIdx.x][thread_large_idx] = thread_large_idx;
           }
         }
       } else if(queue_pair_start[0] == large_read_end[0]) {
@@ -162,7 +162,7 @@ __global__ void build_alias(float** prob, float** alias, uint32_t table_size) {
           if(i < small_read_end[0]) {
             int32_t thread_small_idx = small[queue_wraparound(i,queue_size)];
             prob[blockIdx.x][thread_small_idx] = 0.0f;
-            alias[blockIdx.x][thread_small_idx] = (float) thread_small_idx;
+            alias[blockIdx.x][thread_small_idx] = thread_small_idx;
           }
         }
       } else {
@@ -170,6 +170,7 @@ __global__ void build_alias(float** prob, float** alias, uint32_t table_size) {
       }
     }
   }
+
 }
 
 SpAlias::SpAlias(uint32_t nt, uint32_t ts) {
@@ -178,18 +179,18 @@ SpAlias::SpAlias(uint32_t nt, uint32_t ts) {
   table_size = ts;
   // allocate array of pointers on host first, so cudaMalloc can populate it
   float** prob_host = new float*[num_tables];
-  float** alias_host = new float*[num_tables];
+  uint32_t** alias_host = new uint32_t*[num_tables];
   // allocate each Alias table
   for(int32_t i = 0; i < num_tables; ++i) {
     cudaMalloc(&prob_host[i], table_size * sizeof(float)) >> GPLDA_CHECK;
-    cudaMalloc(&alias_host[i], table_size * sizeof(float)) >> GPLDA_CHECK;
+    cudaMalloc(&alias_host[i], table_size * sizeof(uint32_t)) >> GPLDA_CHECK;
   }
   // now, allocate array of pointers on device
   cudaMalloc(&prob, num_tables * sizeof(float*)) >> GPLDA_CHECK;
-  cudaMalloc(&alias, num_tables * sizeof(float*)) >> GPLDA_CHECK;
+  cudaMalloc(&alias, num_tables * sizeof(uint32_t*)) >> GPLDA_CHECK;
   // copy array of pointers to device
   cudaMemcpy(prob, prob_host, num_tables * sizeof(float*), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
-  cudaMemcpy(alias, alias_host, num_tables * sizeof(float*), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
+  cudaMemcpy(alias, alias_host, num_tables * sizeof(uint32_t*), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
   // deallocate array of pointers on host
   delete[] prob_host;
   delete[] alias_host;
@@ -198,10 +199,10 @@ SpAlias::SpAlias(uint32_t nt, uint32_t ts) {
 SpAlias::~SpAlias() {
   // allocate array of pointers on host, so we can dereference it
   float** prob_host = new float*[num_tables];
-  float** alias_host = new float*[num_tables];
+  uint32_t** alias_host = new uint32_t*[num_tables];
   // copy array of pointers to host
   cudaMemcpy(prob_host, prob, num_tables * sizeof(float*), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
-  cudaMemcpy(alias_host, alias, num_tables * sizeof(float*), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
+  cudaMemcpy(alias_host, alias, num_tables * sizeof(uint32_t*), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
   // free the memory at the arrays being pointed to
   for(int32_t i = 0; i < num_tables; ++i) {
     cudaFree(prob_host[i]) >> GPLDA_CHECK;

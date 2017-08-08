@@ -7,7 +7,7 @@
 namespace gplda {
 
 __device__ __forceinline__ float draw_poisson(float u, float beta, uint32_t n,
-    float** prob, float** alias, uint32_t max_lambda, uint32_t max_value) {
+    float** prob, uint32_t** alias, uint32_t max_lambda, uint32_t max_value) {
   // MUST be defined in this file to compile on all platforms
 
   // if below cutoff, draw using Alias table
@@ -19,13 +19,13 @@ __device__ __forceinline__ float draw_poisson(float u, float beta, uint32_t n,
 
     // load table elements from global memory
     float thread_prob = prob[n][slot];
-    float thread_alias = alias[n][slot];
+    uint32_t thread_alias = alias[n][slot];
 
     // return the resulting draw
     if(u < thread_prob) {
       return (float) slot;
     } else {
-      return thread_alias;
+      return (float) thread_alias;
     }
   }
 
@@ -39,7 +39,7 @@ __device__ __forceinline__ float draw_poisson(float u, float beta, uint32_t n,
 
 
 __global__ void polya_urn_init(uint32_t* n, uint32_t* C, float beta, uint32_t V,
-    float** prob, float** alias, uint32_t max_lambda, uint32_t max_value,
+    float** prob, uint32_t** alias, uint32_t max_lambda, uint32_t max_value,
     curandStatePhilox4_32_10_t* rng) {
   // initialize variables
   curandStatePhilox4_32_10_t thread_rng = rng[0];
@@ -65,7 +65,7 @@ __global__ void polya_urn_init(uint32_t* n, uint32_t* C, float beta, uint32_t V,
 
 
 __global__ void polya_urn_sample(float* Phi, uint32_t* n, float beta, uint32_t V,
-    float** prob, float** alias, uint32_t max_lambda, uint32_t max_value,
+    float** prob, uint32_t** alias, uint32_t max_lambda, uint32_t max_value,
     curandStatePhilox4_32_10_t* rng) {
   // initialize variables
   float thread_sum = 0.0f;

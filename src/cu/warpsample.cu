@@ -33,7 +33,25 @@ __global__ void compute_d_idx(uint32_t* d_len, uint32_t* d_idx, uint32_t n_docs)
   }
 }
 
-__global__ void warp_sample_topics(uint32_t size, uint32_t n_docs, uint32_t *z, uint32_t *w, uint32_t *d_len, uint32_t *d_idx, float** prob, float** alias, curandStatePhilox4_32_10_t* rng) {
+__device__ __forceinline__ uint32_t draw_alias(float u, float* prob, uint32_t* alias, uint32_t table_size) {
+  // determine the slot and update random number
+  float ts = (float) table_size;
+  uint32_t slot = (uint32_t) (u * ts);
+  u = fmodf(u, __frcp_rz(ts)) * ts;
+
+  // load table elements from global memory
+  float thread_prob = prob[slot];
+  uint32_t thread_alias = alias[slot];
+
+  // return the resulting draw
+  if(u < thread_prob) {
+    return slot;
+  } else {
+    return thread_alias;
+  }
+}
+
+__global__ void warp_sample_topics(uint32_t size, uint32_t n_docs, uint32_t* z, uint32_t* w, uint32_t* d_len, uint32_t* d_idx, float** prob, uint32_t** alias, curandStatePhilox4_32_10_t* rng) {
 //  __shared__ uint32_t m_topics[128];
 //  __shared__ uint32_t m_words[128];
 
