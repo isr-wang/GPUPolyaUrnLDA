@@ -7,13 +7,21 @@
 int main(void) {
   gplda_test::run_tests();
 
-  uint32_t C[5] = {1,1,1,1,1};
-  gplda::Args args = {0.1,0.1,10,5,C};
-  uint32_t z[5] = {0,0,0,0,0};
-  uint32_t w[5] = {0,1,2,3,4};
-  uint32_t d[5] = {3,2,0,0,0};
-  uint32_t n_docs = 2;
-  gplda::Buffer buffer = {5, z, w, d, n_docs, NULL, NULL, NULL, NULL, NULL, NULL};
+  constexpr float alpha = 0.1;
+  constexpr float beta = 0.1;
+  constexpr uint32_t V = 5;
+  constexpr uint32_t K = 10;
+  uint32_t C[V] = {1,1,1,1,1};
+  constexpr uint32_t buffer_size = 5;
+  constexpr uint32_t buffer_max_docs = 2;
+
+  gplda::Args args = {alpha,beta,K,V,C,buffer_size,buffer_max_docs};
+  uint32_t z[buffer_size] = {0,0,0,0,0};
+  uint32_t w[buffer_size] = {0,1,2,3,4};
+  uint32_t d[buffer_max_docs] = {3,2};
+  uint32_t K_d[buffer_max_docs] = {1,1};
+  uint32_t n_docs = buffer_max_docs;
+  gplda::Buffer buffer = {z, w, d, K_d, n_docs, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
 
   std::cout << "initializing" << std::endl;
   gplda::initialize(&args, &buffer, 1);

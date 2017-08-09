@@ -18,18 +18,21 @@ struct Args {
   uint32_t K;
   uint32_t V;
   uint32_t* C;
+  uint32_t buffer_size;
+  uint32_t buffer_max_docs;
 };
 
 struct Buffer {
-  uint32_t size;
   uint32_t* z;
   uint32_t* w;
   uint32_t* d;
+  uint32_t* K_d;
   uint32_t n_docs;
   uint32_t* gpu_z;
   uint32_t* gpu_w;
   uint32_t* gpu_d_len;
   uint32_t* gpu_d_idx;
+  uint32_t* gpu_K_d;
   curandStatePhilox4_32_10_t* gpu_rng;
   cudaStream_t* stream;
 };

@@ -51,13 +51,19 @@ __device__ __forceinline__ uint32_t draw_alias(float u, float* prob, uint32_t* a
   }
 }
 
-__global__ void warp_sample_topics(uint32_t size, uint32_t n_docs, uint32_t* z, uint32_t* w, uint32_t* d_len, uint32_t* d_idx, float** prob, uint32_t** alias, curandStatePhilox4_32_10_t* rng) {
-//  __shared__ uint32_t m_topics[128];
-//  __shared__ uint32_t m_words[128];
+__device__ __forceinline__ void count_topics(uint32_t* z, uint32_t document_size) {
 
-  // load current row of Phi into shared memory
-  // load Alias table into shared memory (worth it? we may not access it at all)
-  // compute
+}
+
+__global__ void warp_sample_topics(uint32_t size, uint32_t n_docs, uint32_t* z, uint32_t* w, uint32_t* d_len, uint32_t* d_idx, float** prob, uint32_t** alias, curandStatePhilox4_32_10_t* rng) {
+  // build m
+
+  // loop over words
+
+    // load current row of Phi into shared memory
+    // lazy load Alias table into shared memory
+    // compute m*phi
+    // sample from m*phi
 }
 
 }

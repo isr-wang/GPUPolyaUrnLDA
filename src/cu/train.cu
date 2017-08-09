@@ -62,10 +62,11 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, uint32_t n_buffers)
   for(int32_t i = 0; i < n_buffers; ++i) {
     buffers[i].stream = new cudaStream_t;
     cudaStreamCreate(buffers[i].stream) >> GPLDA_CHECK;
-    cudaMalloc(&buffers[i].gpu_z, buffers[i].size * sizeof(uint32_t)) >> GPLDA_CHECK;
-    cudaMalloc(&buffers[i].gpu_w, buffers[i].size * sizeof(uint32_t)) >> GPLDA_CHECK;
-    cudaMalloc(&buffers[i].gpu_d_len, buffers[i].size * sizeof(uint32_t)) >> GPLDA_CHECK;
-    cudaMalloc(&buffers[i].gpu_d_idx, buffers[i].size * sizeof(uint32_t)) >> GPLDA_CHECK;
+    cudaMalloc(&buffers[i].gpu_z, args->buffer_size * sizeof(uint32_t)) >> GPLDA_CHECK;
+    cudaMalloc(&buffers[i].gpu_w, args->buffer_size * sizeof(uint32_t)) >> GPLDA_CHECK;
+    cudaMalloc(&buffers[i].gpu_d_len, args->buffer_max_docs * sizeof(uint32_t)) >> GPLDA_CHECK;
+    cudaMalloc(&buffers[i].gpu_d_idx, args->buffer_max_docs * sizeof(uint32_t)) >> GPLDA_CHECK;
+    cudaMalloc(&buffers[i].gpu_K_d, args->buffer_max_docs * sizeof(uint32_t)) >> GPLDA_CHECK;
     cudaMalloc(&buffers[i].gpu_rng, sizeof(curandStatePhilox4_32_10_t)) >> GPLDA_CHECK;
     rng_init<<<1,1>>>(0, i + 1, buffers[i].gpu_rng);
     cudaDeviceSynchronize() >> GPLDA_CHECK;
@@ -102,6 +103,7 @@ extern "C" void cleanup(Buffer* buffers, uint32_t n_buffers) {
     cudaFree(buffers[i].gpu_w) >> GPLDA_CHECK;
     cudaFree(buffers[i].gpu_d_len) >> GPLDA_CHECK;
     cudaFree(buffers[i].gpu_d_idx) >> GPLDA_CHECK;
+    cudaFree(buffers[i].gpu_K_d) >> GPLDA_CHECK;
     cudaFree(buffers[i].gpu_rng) >> GPLDA_CHECK;
     cudaStreamDestroy(*buffers[i].stream) >> GPLDA_CHECK;
     delete buffers[i].stream;
@@ -148,17 +150,18 @@ extern "C" void sample_phi() {
 
 extern "C" void sample_z_async(Buffer* buffer) {
   // copy z,w,d to GPU and compute d_idx based on document length
-  cudaMemcpyAsync(buffer->gpu_z, buffer->z, buffer->size, cudaMemcpyHostToDevice,*buffer->stream) >> GPLDA_CHECK; // copy z to GPU
-  cudaMemcpyAsync(buffer->gpu_w, buffer->w, buffer->size, cudaMemcpyHostToDevice,*buffer->stream) >> GPLDA_CHECK; // copy w to GPU
+  cudaMemcpyAsync(buffer->gpu_z, buffer->z, args->buffer_size, cudaMemcpyHostToDevice,*buffer->stream) >> GPLDA_CHECK; // copy z to GPU
+  cudaMemcpyAsync(buffer->gpu_w, buffer->w, args->buffer_size, cudaMemcpyHostToDevice,*buffer->stream) >> GPLDA_CHECK; // copy w to GPU
   cudaMemcpyAsync(buffer->gpu_d_len, buffer->d, buffer->n_docs, cudaMemcpyHostToDevice,*buffer->stream) >> GPLDA_CHECK;
-  compute_d_idx<<<1,GPLDA_COMPUTE_D_IDX_BLOCKDIM,0,*buffer->stream>>>(buffer->gpu_d_len, buffer->gpu_d_idx, buffer->n_docs);
+  cudaMemcpyAsync(buffer->gpu_K_d, buffer->K_d, buffer->n_docs, cudaMemcpyHostToDevice,*buffer->stream) >> GPLDA_CHECK;
+    compute_d_idx<<<1,GPLDA_COMPUTE_D_IDX_BLOCKDIM,0,*buffer->stream>>>(buffer->gpu_d_len, buffer->gpu_d_idx, buffer->n_docs);
 
   // sample the topic indicators
-  warp_sample_topics<<<buffer->n_docs,32,0,*buffer->stream>>>(buffer->size, buffer->n_docs, buffer->gpu_z, buffer->gpu_w, buffer->gpu_d_len, buffer->gpu_d_idx, alias->prob, alias->alias, buffer->gpu_rng);
-  rng_advance<<<1,1,0,*buffer->stream>>>(buffer->size,Phi_rng);
+  warp_sample_topics<<<buffer->n_docs,32,0,*buffer->stream>>>(args->buffer_size, buffer->n_docs, buffer->gpu_z, buffer->gpu_w, buffer->gpu_d_len, buffer->gpu_d_idx, alias->prob, alias->alias, buffer->gpu_rng);
+  rng_advance<<<1,1,0,*buffer->stream>>>(args->buffer_size,Phi_rng);
 
   // copy z back to host
-  cudaMemcpyAsync(buffer->z, buffer->gpu_z, buffer->size, cudaMemcpyDeviceToHost,*buffer->stream) >> GPLDA_CHECK;
+  cudaMemcpyAsync(buffer->z, buffer->gpu_z, args->buffer_size, cudaMemcpyDeviceToHost,*buffer->stream) >> GPLDA_CHECK;
 }
 
 extern "C" void sync_buffer(Buffer *buffer) {
