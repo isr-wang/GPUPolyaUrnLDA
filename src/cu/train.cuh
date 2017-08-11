@@ -1,5 +1,4 @@
-#ifndef GPLDA_TRAIN_H
-#define GPLDA_TRAIN_H
+#pragma once
 
 #include "stdint.h"
 
@@ -46,5 +45,3 @@ extern "C" void cleanup(Buffer* buffers, uint32_t n_buffers);
 extern "C" void sync_buffer(Buffer* buffer);
 
 }
-
-#endif

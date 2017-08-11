@@ -1,5 +1,4 @@
-#ifndef GPLDA_POISSON_H
-#define GPLDA_POISSON_H
+#pragma once
 
 #include "stdint.h"
 #include "spalias.cuh"
@@ -17,5 +16,3 @@ class Poisson {
 };
 
 }
-
-#endif

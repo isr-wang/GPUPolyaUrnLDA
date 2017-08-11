@@ -1,10 +1,7 @@
-#ifndef GPLDA_ERROR_H
-#define GPLDA_ERROR_H
+#pragma once
 
 namespace gplda_test {
 
 void run_tests();
 
 }
-
-#endif

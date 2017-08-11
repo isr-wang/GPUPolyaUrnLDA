@@ -154,7 +154,7 @@ extern "C" void sample_z_async(Buffer* buffer) {
   cudaMemcpyAsync(buffer->gpu_w, buffer->w, args->buffer_size, cudaMemcpyHostToDevice,*buffer->stream) >> GPLDA_CHECK; // copy w to GPU
   cudaMemcpyAsync(buffer->gpu_d_len, buffer->d, buffer->n_docs, cudaMemcpyHostToDevice,*buffer->stream) >> GPLDA_CHECK;
   cudaMemcpyAsync(buffer->gpu_K_d, buffer->K_d, buffer->n_docs, cudaMemcpyHostToDevice,*buffer->stream) >> GPLDA_CHECK;
-    compute_d_idx<<<1,GPLDA_COMPUTE_D_IDX_BLOCKDIM,0,*buffer->stream>>>(buffer->gpu_d_len, buffer->gpu_d_idx, buffer->n_docs);
+  compute_d_idx<<<1,GPLDA_COMPUTE_D_IDX_BLOCKDIM,0,*buffer->stream>>>(buffer->gpu_d_len, buffer->gpu_d_idx, buffer->n_docs);
 
   // sample the topic indicators
   warp_sample_topics<<<buffer->n_docs,32,0,*buffer->stream>>>(args->buffer_size, buffer->n_docs, buffer->gpu_z, buffer->gpu_w, buffer->gpu_d_len, buffer->gpu_d_idx, alias->prob, alias->alias, buffer->gpu_rng);

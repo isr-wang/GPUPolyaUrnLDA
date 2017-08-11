@@ -1,10 +1,7 @@
-#ifndef GPLDA_TEST_SPALIAS_H
-#define GPLDA_TEST_SPALIAS_H
+#pragma once
 
 namespace gplda_test {
 
 void test_build_alias();
 
 }
-
-#endif

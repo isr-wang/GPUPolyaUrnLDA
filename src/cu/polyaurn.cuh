@@ -1,13 +1,10 @@
-#ifndef GPLDA_POLYAURNSAMPLE_H
-#define GPLDA_POLYAURNSAMPLE_H
+#pragma once
 
 #include "stdint.h"
 #include <cuda_runtime.h>
 #include <curand_kernel.h> // need to add -lcurand to nvcc flags
 #include <cublas_v2.h> // need to add -lcublas to nvcc flags
-
-#define GPLDA_POLYA_URN_COLSUMS_BLOCKDIM 128
-#define GPLDA_POLYA_URN_SAMPLE_BLOCKDIM 256
+#include "tuning.cuh"
 
 namespace gplda {
 
@@ -18,5 +15,3 @@ __global__ void polya_urn_reset(uint32_t* n, uint32_t V);
 __global__ void polya_urn_colsums(float* Phi, float* sigma_a, float alpha, float** prob, uint32_t K);
 
 }
-
-#endif

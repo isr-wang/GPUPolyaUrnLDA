@@ -1,5 +1,4 @@
-#ifndef GPLDA_TEST_POLYAURNSAMPLE_H
-#define GPLDA_TEST_POLYAURNSAMPLE_H
+#pragma once
 
 namespace gplda_test {
 
@@ -10,5 +9,3 @@ void test_polya_urn_reset();
 void test_polya_urn_colsums();
 
 }
-
-#endif

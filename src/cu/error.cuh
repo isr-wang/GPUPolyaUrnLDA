@@ -1,5 +1,4 @@
-#ifndef GPLDA_ERROR_H
-#define GPLDA_ERROR_H
+#pragma once
 
 #include <cstdio>
 
@@ -72,5 +71,3 @@ inline void operator>>(curandStatus_t error, const FileLine &fl) {
 }
 
 #define GPLDA_CHECK FileLine(__FILE__, __LINE__)
-
-#endif
