@@ -82,7 +82,7 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, uint32_t n_buffers)
   cudaMemcpy(C, args->C, args->V * sizeof(uint32_t), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
 
   // run device init code
-  polya_urn_init<<<args->K,256>>>(n->dense, C, args->beta, args->V, pois->pois_alias->prob, pois->pois_alias->alias, pois->max_lambda, pois->max_value, Phi_rng);
+  polya_urn_init<<<args->K,GPLDA_POLYA_URN_SAMPLE_BLOCKDIM>>>(n->dense, C, args->beta, args->V, pois->pois_alias->prob, pois->pois_alias->alias, pois->max_lambda, pois->max_value, Phi_rng);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
   rng_advance<<<1,1>>>(args->K*args->V,Phi_rng);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
@@ -157,7 +157,7 @@ extern "C" void sample_z_async(Buffer* buffer) {
   compute_d_idx<<<1,GPLDA_COMPUTE_D_IDX_BLOCKDIM,0,*buffer->stream>>>(buffer->gpu_d_len, buffer->gpu_d_idx, buffer->n_docs);
 
   // sample the topic indicators
-  warp_sample_topics<<<buffer->n_docs,32,0,*buffer->stream>>>(args->buffer_size, buffer->n_docs, buffer->gpu_z, buffer->gpu_w, buffer->gpu_d_len, buffer->gpu_d_idx, alias->prob, alias->alias, buffer->gpu_rng);
+  warp_sample_topics<<<buffer->n_docs,GPLDA_WARP_SAMPLE_TOPICS_BLOCKDIM,0,*buffer->stream>>>(args->buffer_size, buffer->n_docs, buffer->gpu_z, buffer->gpu_w, buffer->gpu_d_len, buffer->gpu_d_idx, alias->prob, alias->alias, buffer->gpu_rng);
   rng_advance<<<1,1,0,*buffer->stream>>>(args->buffer_size,Phi_rng);
 
   // copy z back to host
