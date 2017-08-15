@@ -57,7 +57,7 @@ __device__ __forceinline__ uint32_t draw_wary_search(float u) {
 }
 
 __device__ __forceinline__ void count_topics(uint32_t* z, uint32_t document_size, HashMap* m, void* temp) {
-  hash_map_init(m, temp, document_size);
+  hash_map_init(m, temp, document_size, warpSize);
   // loop over z, add to m
 }
 
@@ -68,11 +68,13 @@ __device__ __forceinline__ float compute_product_cumsum(uint32_t* mPhi) {
 __global__ void warp_sample_topics(uint32_t size, uint32_t n_docs,
     uint32_t* z, uint32_t* w, uint32_t* d_len, uint32_t* d_idx, uint32_t* K_d, void* temp,
     uint32_t K, uint32_t V, uint32_t max_K_d,
+    float* Phi_dense,
     float** prob, uint32_t** alias, curandStatePhilox4_32_10_t* rng) {
   // initialize variables
   curandStatePhilox4_32_10_t warp_rng = rng[0];
   HashMap m;
   uint32_t** mPhi = (uint32_t**) &m.temp_data;
+  int32_t lane_idx = threadIdx.x % warpSize;
 
   // loop over documents
   for(int32_t i = 0; i < n_docs; ++i) {
