@@ -9,12 +9,8 @@
 #include "polyaurn.cuh"
 #include "random.cuh"
 #include "spalias.cuh"
+#include "tuning.cuh"
 #include "warpsample.cuh"
-
-#define POIS_MAX_LAMBDA 100
-#define POIS_MAX_VALUE 200
-#define DS_DENSE 100
-#define DS_SPARSE 1000
 
 namespace gplda {
 
@@ -67,6 +63,7 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, uint32_t n_buffers)
     cudaMalloc(&buffers[i].gpu_d_len, args->max_K_d * sizeof(uint32_t)) >> GPLDA_CHECK;
     cudaMalloc(&buffers[i].gpu_d_idx, args->max_K_d * sizeof(uint32_t)) >> GPLDA_CHECK;
     cudaMalloc(&buffers[i].gpu_K_d, args->max_K_d * sizeof(uint32_t)) >> GPLDA_CHECK;
+    cudaMalloc(&buffers[i].gpu_temp, 2 * (args->max_K_d + GPLDA_HASH_STASH_SIZE) * sizeof(uint32_t)) >> GPLDA_CHECK;
     cudaMalloc(&buffers[i].gpu_rng, sizeof(curandStatePhilox4_32_10_t)) >> GPLDA_CHECK;
     rng_init<<<1,1>>>(0, i + 1, buffers[i].gpu_rng);
     cudaDeviceSynchronize() >> GPLDA_CHECK;
@@ -75,7 +72,7 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, uint32_t n_buffers)
   // allocate globals
   Phi = new DSMatrix<float>();
   n = new DSMatrix<uint32_t>();
-  pois = new Poisson(POIS_MAX_LAMBDA, POIS_MAX_VALUE, args->beta);
+  pois = new Poisson(GPLDA_POIS_MAX_LAMBDA, GPLDA_POIS_MAX_VALUE, args->beta);
   alias = new SpAlias(args->V, args->K);
   cudaMalloc(&sigma_a,args->V * sizeof(float)) >> GPLDA_CHECK;
   cudaMalloc(&C,args->V * sizeof(uint32_t)) >> GPLDA_CHECK;
@@ -104,6 +101,7 @@ extern "C" void cleanup(Buffer* buffers, uint32_t n_buffers) {
     cudaFree(buffers[i].gpu_d_len) >> GPLDA_CHECK;
     cudaFree(buffers[i].gpu_d_idx) >> GPLDA_CHECK;
     cudaFree(buffers[i].gpu_K_d) >> GPLDA_CHECK;
+    cudaFree(buffers[i].gpu_temp) >> GPLDA_CHECK;
     cudaFree(buffers[i].gpu_rng) >> GPLDA_CHECK;
     cudaStreamDestroy(*buffers[i].stream) >> GPLDA_CHECK;
     delete buffers[i].stream;
