@@ -1,6 +1,7 @@
 #include <cuda_runtime.h>
 #include <curand_kernel.h> // need to add -lcurand to nvcc flags
 #include <cublas_v2.h> // need to add -lcublas to nvcc flags
+#include "assert.h"
 
 #include "train.cuh"
 #include "dsmatrix.cuh"
@@ -16,34 +17,37 @@ namespace gplda {
 
 // global variables
 Args* args; // externally visible
-DSMatrix<float>* Phi;
-DSMatrix<uint32_t>* n;
+DSMatrix<f32>* Phi;
+DSMatrix<u32>* n;
 Poisson* pois;
 SpAlias* alias;
-float* sigma_a;
-uint32_t* C;
+f32* sigma_a;
+u32* C;
 curandStatePhilox4_32_10_t* Phi_rng;
 cudaStream_t* Phi_stream;
 cublasHandle_t* cublas_handle;
-DSMatrix<float>* Phi_temp;
-float* d_one;
-float* d_zero;
+DSMatrix<f32>* Phi_temp;
+f32* d_one;
+f32* d_zero;
 
-extern "C" void initialize(Args* init_args, Buffer* buffers, uint32_t n_buffers) {
+extern "C" void initialize(Args* init_args, Buffer* buffers, u32 n_buffers) {
   // set the pointer to args struct
   args = init_args;
+
+  // if the types are broken, explode
+  assert(sizeof(u64) == 8 && sizeof(u32) == 4 && sizeof(i32) == 4 && sizeof(f32) == 4);
 
   // allocate and initialize cuBLAS
   cublas_handle = new cublasHandle_t;
   cublasCreate(cublas_handle) >> GPLDA_CHECK;
   cublasSetPointerMode(*cublas_handle, CUBLAS_POINTER_MODE_DEVICE) >> GPLDA_CHECK;
-  float h_zero = 0.0f;
-  cudaMalloc(&d_zero, sizeof(float)) >> GPLDA_CHECK;
-  cudaMemcpy(d_zero, &h_zero, sizeof(float), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
-  float h_one = 1.0f;
-  cudaMalloc(&d_one, sizeof(float)) >> GPLDA_CHECK;
-  cudaMemcpy(d_one, &h_one, sizeof(float), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
-  Phi_temp = new DSMatrix<float>();
+  f32 h_zero = 0.0f;
+  cudaMalloc(&d_zero, sizeof(f32)) >> GPLDA_CHECK;
+  cudaMemcpy(d_zero, &h_zero, sizeof(f32), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
+  f32 h_one = 1.0f;
+  cudaMalloc(&d_one, sizeof(f32)) >> GPLDA_CHECK;
+  cudaMemcpy(d_one, &h_one, sizeof(f32), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
+  Phi_temp = new DSMatrix<f32>();
 
   // allocate and initialize cuRAND
   cudaMalloc(&Phi_rng, sizeof(curandStatePhilox4_32_10_t)) >> GPLDA_CHECK;
@@ -55,28 +59,28 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, uint32_t n_buffers)
   cudaStreamCreate(Phi_stream) >> GPLDA_CHECK;
 
   // allocate memory for buffers
-  for(int32_t i = 0; i < n_buffers; ++i) {
+  for(i32 i = 0; i < n_buffers; ++i) {
     buffers[i].stream = new cudaStream_t;
     cudaStreamCreate(buffers[i].stream) >> GPLDA_CHECK;
-    cudaMalloc(&buffers[i].gpu_z, args->buffer_size * sizeof(uint32_t)) >> GPLDA_CHECK;
-    cudaMalloc(&buffers[i].gpu_w, args->buffer_size * sizeof(uint32_t)) >> GPLDA_CHECK;
-    cudaMalloc(&buffers[i].gpu_d_len, args->max_K_d * sizeof(uint32_t)) >> GPLDA_CHECK;
-    cudaMalloc(&buffers[i].gpu_d_idx, args->max_K_d * sizeof(uint32_t)) >> GPLDA_CHECK;
-    cudaMalloc(&buffers[i].gpu_K_d, args->max_K_d * sizeof(uint32_t)) >> GPLDA_CHECK;
-    cudaMalloc(&buffers[i].gpu_temp, 2 * (args->max_K_d + GPLDA_HASH_STASH_SIZE) * sizeof(uint32_t)) >> GPLDA_CHECK;
+    cudaMalloc(&buffers[i].gpu_z, args->buffer_size * sizeof(u32)) >> GPLDA_CHECK;
+    cudaMalloc(&buffers[i].gpu_w, args->buffer_size * sizeof(u32)) >> GPLDA_CHECK;
+    cudaMalloc(&buffers[i].gpu_d_len, args->max_K_d * sizeof(u32)) >> GPLDA_CHECK;
+    cudaMalloc(&buffers[i].gpu_d_idx, args->max_K_d * sizeof(u32)) >> GPLDA_CHECK;
+    cudaMalloc(&buffers[i].gpu_K_d, args->max_K_d * sizeof(u32)) >> GPLDA_CHECK;
+    cudaMalloc(&buffers[i].gpu_temp, 2 * (args->max_K_d + GPLDA_HASH_STASH_SIZE) * sizeof(u32)) >> GPLDA_CHECK;
     cudaMalloc(&buffers[i].gpu_rng, sizeof(curandStatePhilox4_32_10_t)) >> GPLDA_CHECK;
     rng_init<<<1,1>>>(0, i + 1, buffers[i].gpu_rng);
     cudaDeviceSynchronize() >> GPLDA_CHECK;
   }
 
   // allocate globals
-  Phi = new DSMatrix<float>();
-  n = new DSMatrix<uint32_t>();
+  Phi = new DSMatrix<f32>();
+  n = new DSMatrix<u32>();
   pois = new Poisson(GPLDA_POIS_MAX_LAMBDA, GPLDA_POIS_MAX_VALUE, args->beta);
   alias = new SpAlias(args->V, args->K);
-  cudaMalloc(&sigma_a,args->V * sizeof(float)) >> GPLDA_CHECK;
-  cudaMalloc(&C,args->V * sizeof(uint32_t)) >> GPLDA_CHECK;
-  cudaMemcpy(C, args->C, args->V * sizeof(uint32_t), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
+  cudaMalloc(&sigma_a,args->V * sizeof(f32)) >> GPLDA_CHECK;
+  cudaMalloc(&C,args->V * sizeof(u32)) >> GPLDA_CHECK;
+  cudaMemcpy(C, args->C, args->V * sizeof(u32), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
 
   // run device init code
   polya_urn_init<<<args->K,GPLDA_POLYA_URN_SAMPLE_BLOCKDIM>>>(n->dense, C, args->beta, args->V, pois->pois_alias->prob, pois->pois_alias->alias, pois->max_lambda, pois->max_value, Phi_rng);
@@ -85,7 +89,7 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, uint32_t n_buffers)
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 }
 
-extern "C" void cleanup(Buffer* buffers, uint32_t n_buffers) {
+extern "C" void cleanup(Buffer* buffers, u32 n_buffers) {
   // deallocate globals
   cudaFree(C) >> GPLDA_CHECK;
   cudaFree(sigma_a) >> GPLDA_CHECK;
@@ -95,7 +99,7 @@ extern "C" void cleanup(Buffer* buffers, uint32_t n_buffers) {
   delete Phi;
 
   // deallocate memory for buffers
-  for(int32_t i = 0; i < n_buffers; ++i) {
+  for(i32 i = 0; i < n_buffers; ++i) {
     cudaFree(buffers[i].gpu_z) >> GPLDA_CHECK;
     cudaFree(buffers[i].gpu_w) >> GPLDA_CHECK;
     cudaFree(buffers[i].gpu_d_len) >> GPLDA_CHECK;
@@ -137,7 +141,7 @@ extern "C" void sample_phi() {
   polya_urn_colsums<<<args->V,GPLDA_POLYA_URN_COLSUMS_BLOCKDIM,0,*Phi_stream>>>(Phi->dense, sigma_a, args->alpha, alias->prob, args->K);
 
   // build Alias tables
-  build_alias<<<args->V,32,2*next_pow2(args->K)*sizeof(int32_t), *Phi_stream>>>(alias->prob, alias->alias, args->K);
+  build_alias<<<args->V,32,2*next_pow2(args->K)*sizeof(i32), *Phi_stream>>>(alias->prob, alias->alias, args->K);
 
   // reset sufficient statistics for n
   polya_urn_reset<<<args->K,128,0,*Phi_stream>>>(n->dense, args->V);

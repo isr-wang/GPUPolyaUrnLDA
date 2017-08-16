@@ -6,24 +6,28 @@
 #include "assert.h"
 
 using gplda::FileLine;
+using gplda::f32;
+using gplda::i32;
+using gplda::u32;
+using gplda::u64;
 
 namespace gplda_test {
 
 void test_polya_urn_init() {
-  constexpr uint32_t K = 10000;
-  constexpr uint32_t V = 5;
-  float beta = 0.01;
-  uint32_t n_host[V*K];
-  uint32_t C_host[V] = {1*K, 10*K, 100*K, 1000*K, 10000*K}; // K=5 so E(n_k) = [1, 10, 100, 1000, 10000]
-  uint32_t n_sum[V] = {0,0,0,0,0};
-  uint32_t n_ssq[V] = {0,0,0,0,0};
+  constexpr u32 K = 10000;
+  constexpr u32 V = 5;
+  f32 beta = 0.01;
+  u32 n_host[V*K];
+  u32 C_host[V] = {1*K, 10*K, 100*K, 1000*K, 10000*K}; // K=5 so E(n_k) = [1, 10, 100, 1000, 10000]
+  u32 n_sum[V] = {0,0,0,0,0};
+  u32 n_ssq[V] = {0,0,0,0,0};
 
-  uint32_t* n;
-  cudaMalloc(&n, K * V * sizeof(uint32_t)) >> GPLDA_CHECK;
+  u32* n;
+  cudaMalloc(&n, K * V * sizeof(u32)) >> GPLDA_CHECK;
 
-  uint32_t* C;
-  cudaMalloc(&C, V * sizeof(uint32_t)) >> GPLDA_CHECK;
-  cudaMemcpy(C, C_host, V * sizeof(uint32_t), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
+  u32* C;
+  cudaMalloc(&C, V * sizeof(u32)) >> GPLDA_CHECK;
+  cudaMemcpy(C, C_host, V * sizeof(u32), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
 
   curandStatePhilox4_32_10_t* Phi_rng;
   cudaMalloc(&Phi_rng, sizeof(curandStatePhilox4_32_10_t)) >> GPLDA_CHECK;
@@ -35,18 +39,18 @@ void test_polya_urn_init() {
   gplda::polya_urn_init<<<K,32>>>(n, C, beta, V, pois->pois_alias->prob, pois->pois_alias->alias, pois->max_lambda, pois->max_value, Phi_rng);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 
-  cudaMemcpy(n_host, n, K * V * sizeof(uint32_t), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
+  cudaMemcpy(n_host, n, K * V * sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
 
   // check mean by computing sum
-  for(int32_t j = 0; j < K; ++j) {
-    for(int32_t i = 0; i < V; ++i) {
+  for(i32 j = 0; j < K; ++j) {
+    for(i32 i = 0; i < V; ++i) {
       n_sum[i] += n_host[j*V + i];
     }
   }
 
   // check var by computing sum square
-  for(int32_t j = 0; j < K; ++j) {
-    for(int32_t i = 0; i < V; ++i) {
+  for(i32 j = 0; j < K; ++j) {
+    for(i32 i = 0; i < V; ++i) {
       n_ssq[i] += ((n_host[j*V + i] - (n_sum[i] / K)) * (n_host[j*V + i] - (n_sum[i] / K)));
     }
   }
@@ -70,20 +74,20 @@ void test_polya_urn_init() {
 }
 
 void test_polya_urn_sample() {
-  constexpr uint32_t V = 3;
-  constexpr uint32_t K = 3;
-  float tolerance = 0.02f; // large to allow for randomness
+  constexpr u32 V = 3;
+  constexpr u32 K = 3;
+  f32 tolerance = 0.02f; // large to allow for randomness
 
-  uint32_t n_host[V*K] = {1,10,100,1,1,1,1000,1000,1000};
-  float Phi_host[V*K];
+  u32 n_host[V*K] = {1,10,100,1,1,1,1000,1000,1000};
+  f32 Phi_host[V*K];
 
-  float* Phi;
-  cudaMalloc(&Phi, V*K * sizeof(float)) >> GPLDA_CHECK;
+  f32* Phi;
+  cudaMalloc(&Phi, V*K * sizeof(f32)) >> GPLDA_CHECK;
 
-  uint32_t* n;
-  cudaMalloc(&n, V*K * sizeof(uint32_t)) >> GPLDA_CHECK;
+  u32* n;
+  cudaMalloc(&n, V*K * sizeof(u32)) >> GPLDA_CHECK;
 
-  cudaMemcpy(n, n_host, V*K * sizeof(uint32_t), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
+  cudaMemcpy(n, n_host, V*K * sizeof(u32), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
 
   curandStatePhilox4_32_10_t* Phi_rng;
   cudaMalloc(&Phi_rng, sizeof(curandStatePhilox4_32_10_t)) >> GPLDA_CHECK;
@@ -95,7 +99,7 @@ void test_polya_urn_sample() {
   gplda::polya_urn_sample<<<K,GPLDA_POLYA_URN_SAMPLE_BLOCKDIM>>>(Phi, n, 0.01f, V, pois->pois_alias->prob, pois->pois_alias->alias, pois->max_lambda, pois->max_value, Phi_rng);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 
-  cudaMemcpy(Phi_host, Phi, V*K * sizeof(float), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
+  cudaMemcpy(Phi_host, Phi, V*K * sizeof(f32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
 
   assert(abs(Phi_host[0] - 0.01f) < tolerance);
   assert(abs(Phi_host[1] - 0.09f) < tolerance);
@@ -117,16 +121,16 @@ void test_polya_urn_transpose() {
   // 0.3 0.3 0.4
   // 0.2 0.5 0.3
   // 0.1 0.1 0.8
-  constexpr uint32_t V = 3;
-  constexpr uint32_t K = 3;
-  float Phi_host[V*K] = {0.3f, 0.3f, 0.4f, 0.2f, 0.5f, 0.3f, 0.1f, 0.1f, 0.8f};
-  float* Phi;
-  float* Phi_temp;
+  constexpr u32 V = 3;
+  constexpr u32 K = 3;
+  f32 Phi_host[V*K] = {0.3f, 0.3f, 0.4f, 0.2f, 0.5f, 0.3f, 0.1f, 0.1f, 0.8f};
+  f32* Phi;
+  f32* Phi_temp;
 
-  cudaMalloc(&Phi, V*K * sizeof(float)) >> GPLDA_CHECK;
-  cudaMalloc(&Phi_temp, V*K * sizeof(float)) >> GPLDA_CHECK;
+  cudaMalloc(&Phi, V*K * sizeof(f32)) >> GPLDA_CHECK;
+  cudaMalloc(&Phi_temp, V*K * sizeof(f32)) >> GPLDA_CHECK;
 
-  cudaMemcpy(Phi, Phi_host, V*K * sizeof(float), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
+  cudaMemcpy(Phi, Phi_host, V*K * sizeof(f32), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
 
   cudaStream_t* stream = new cudaStream_t;
   cudaStreamCreate(stream) >> GPLDA_CHECK;
@@ -135,19 +139,19 @@ void test_polya_urn_transpose() {
   cublasCreate(cublas_handle) >> GPLDA_CHECK;
   cublasSetPointerMode(*cublas_handle, CUBLAS_POINTER_MODE_DEVICE) >> GPLDA_CHECK;
 
-  float h_one = 1.0f; // cudaMemset for some reason doesn't work correctly
-  float h_zero = 0.0f;
-  float* d_zero;
-  float* d_one;
-  cudaMalloc(&d_zero, sizeof(float)) >> GPLDA_CHECK;
-  cudaMemcpy(d_zero, &h_zero, sizeof(float), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
-  cudaMalloc(&d_one, sizeof(float)) >> GPLDA_CHECK;
-  cudaMemcpy(d_one, &h_one, sizeof(float), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
+  f32 h_one = 1.0f; // cudaMemset for some reason doesn't work correctly
+  f32 h_zero = 0.0f;
+  f32* d_zero;
+  f32* d_one;
+  cudaMalloc(&d_zero, sizeof(f32)) >> GPLDA_CHECK;
+  cudaMemcpy(d_zero, &h_zero, sizeof(f32), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
+  cudaMalloc(&d_one, sizeof(f32)) >> GPLDA_CHECK;
+  cudaMemcpy(d_one, &h_one, sizeof(f32), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
 
   gplda::polya_urn_transpose(stream, Phi, Phi_temp, 3, 3, cublas_handle, d_zero, d_one);
   cudaStreamSynchronize(*stream);
 
-  cudaMemcpy(Phi_host, Phi, V*K * sizeof(float), cudaMemcpyDeviceToHost);
+  cudaMemcpy(Phi_host, Phi, V*K * sizeof(f32), cudaMemcpyDeviceToHost);
 
   assert(Phi_host[0] == 0.3f);
   assert(Phi_host[1] == 0.2f);
@@ -172,18 +176,18 @@ void test_polya_urn_transpose() {
 }
 
 void test_polya_urn_reset() {
-  constexpr uint32_t V = 3;
-  constexpr uint32_t K = 3;
-  uint32_t n_host[V*K] = {1, 2, 3, 4, 5, 6, 7, 8, 9};
-  uint32_t* n;
+  constexpr u32 V = 3;
+  constexpr u32 K = 3;
+  u32 n_host[V*K] = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+  u32* n;
 
-  cudaMalloc(&n, V*K * sizeof(uint32_t)) >> GPLDA_CHECK;
-  cudaMemcpy(n, n_host, V*K * sizeof(uint32_t), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
+  cudaMalloc(&n, V*K * sizeof(u32)) >> GPLDA_CHECK;
+  cudaMemcpy(n, n_host, V*K * sizeof(u32), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
 
   gplda::polya_urn_reset<<<K, 128>>>(n, V);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 
-  cudaMemcpy(n_host, n, V*K * sizeof(uint32_t), cudaMemcpyDeviceToHost);
+  cudaMemcpy(n_host, n, V*K * sizeof(u32), cudaMemcpyDeviceToHost);
 
   assert(n_host[0] == 0);
   assert(n_host[1] == 0);
@@ -199,54 +203,54 @@ void test_polya_urn_reset() {
 }
 
 void test_polya_urn_colsums() {
-  constexpr uint32_t V = 3;
-  constexpr uint32_t K = 3;
-  float tolerance = 0.0001f;
+  constexpr u32 V = 3;
+  constexpr u32 K = 3;
+  f32 tolerance = 0.0001f;
   // 0.3 0.3 0.4
   // 0.2 0.5 0.3
   // 0.1 0.1 0.8
-  float Phi_host[V*K] = {0.3f, 0.2f, 0.1f, 0.3f, 0.5f, 0.1f, 0.4f, 0.3f, 0.8f};
-  float* Phi;
+  f32 Phi_host[V*K] = {0.3f, 0.2f, 0.1f, 0.3f, 0.5f, 0.1f, 0.4f, 0.3f, 0.8f};
+  f32* Phi;
 
-  cudaMalloc(&Phi, V*K * sizeof(float)) >> GPLDA_CHECK;
+  cudaMalloc(&Phi, V*K * sizeof(f32)) >> GPLDA_CHECK;
 
-  cudaMemcpy(Phi, Phi_host, V*K * sizeof(float), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
+  cudaMemcpy(Phi, Phi_host, V*K * sizeof(f32), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
 
-  float* sigma_a;
-  cudaMalloc(&sigma_a, V*K * sizeof(float)) >> GPLDA_CHECK;
+  f32* sigma_a;
+  cudaMalloc(&sigma_a, V*K * sizeof(f32)) >> GPLDA_CHECK;
 
-  float** prob;
-  cudaMalloc(&prob, V*K * sizeof(float*)) >> GPLDA_CHECK;
+  f32** prob;
+  cudaMalloc(&prob, V*K * sizeof(f32*)) >> GPLDA_CHECK;
 
-  float* prob_1;
-  float* prob_2;
-  float* prob_3;
-  cudaMalloc(&prob_1, V*K * sizeof(float)) >> GPLDA_CHECK;
-  cudaMalloc(&prob_2, V*K * sizeof(float)) >> GPLDA_CHECK;
-  cudaMalloc(&prob_3, V*K * sizeof(float)) >> GPLDA_CHECK;
+  f32* prob_1;
+  f32* prob_2;
+  f32* prob_3;
+  cudaMalloc(&prob_1, V*K * sizeof(f32)) >> GPLDA_CHECK;
+  cudaMalloc(&prob_2, V*K * sizeof(f32)) >> GPLDA_CHECK;
+  cudaMalloc(&prob_3, V*K * sizeof(f32)) >> GPLDA_CHECK;
 
-  float* prob_host[3] = {prob_1, prob_2, prob_3};
+  f32* prob_host[3] = {prob_1, prob_2, prob_3};
 
-  cudaMemcpy(prob, prob_host, V * sizeof(float*), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
+  cudaMemcpy(prob, prob_host, V * sizeof(f32*), cudaMemcpyHostToDevice) >> GPLDA_CHECK;
 
   gplda::polya_urn_colsums<<<V,GPLDA_POLYA_URN_COLSUMS_BLOCKDIM>>>(Phi, sigma_a, 1.0f, prob, K);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 
-  float sigma_a_host[V];
+  f32 sigma_a_host[V];
 
-  cudaMemcpy(sigma_a_host, sigma_a, V * sizeof(float), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
+  cudaMemcpy(sigma_a_host, sigma_a, V * sizeof(f32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
 
   assert(sigma_a_host[0] - (0.3f + 0.2f + 0.1f) < tolerance);
   assert(sigma_a_host[1] - (0.3f + 0.5f + 0.1f) < tolerance);
   assert(sigma_a_host[2] - (0.4f + 0.3f + 0.8f) < tolerance);
 
-  float prob_host_1[K];
-  float prob_host_2[K];
-  float prob_host_3[K];
+  f32 prob_host_1[K];
+  f32 prob_host_2[K];
+  f32 prob_host_3[K];
 
-  cudaMemcpy(prob_host_1, prob_1, K * sizeof(float), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
-  cudaMemcpy(prob_host_2, prob_2, K * sizeof(float), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
-  cudaMemcpy(prob_host_3, prob_3, K * sizeof(float), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
+  cudaMemcpy(prob_host_1, prob_1, K * sizeof(f32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
+  cudaMemcpy(prob_host_2, prob_2, K * sizeof(f32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
+  cudaMemcpy(prob_host_3, prob_3, K * sizeof(f32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
 
   assert(abs(prob_host_1[0] - (0.3f / (0.3f + 0.2f + 0.1f))) < tolerance);
   assert(abs(prob_host_1[1] - (0.2f / (0.3f + 0.2f + 0.1f))) < tolerance);

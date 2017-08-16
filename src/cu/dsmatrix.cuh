@@ -1,6 +1,6 @@
 #pragma once
 
-#include "stdint.h"
+#include "types.cuh"
 
 namespace gplda {
 
@@ -12,7 +12,7 @@ class DSMatrix {
     ~DSMatrix();
 };
 
-extern template class DSMatrix<float>;
-extern template class DSMatrix<uint32_t>;
+extern template class DSMatrix<f32>;
+extern template class DSMatrix<u32>;
 
 }

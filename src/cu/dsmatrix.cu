@@ -14,7 +14,7 @@ DSMatrix<T>::~DSMatrix<T>() {
   cudaFree(dense) >> GPLDA_CHECK;
 }
 
-template class DSMatrix<float>;
-template class DSMatrix<uint32_t>;
+template class DSMatrix<f32>;
+template class DSMatrix<u32>;
 
 }

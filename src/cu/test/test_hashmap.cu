@@ -4,6 +4,10 @@
 #include "assert.h"
 
 using gplda::FileLine;
+using gplda::f32;
+using gplda::i32;
+using gplda::u32;
+using gplda::u64;
 
 namespace gplda_test {
 

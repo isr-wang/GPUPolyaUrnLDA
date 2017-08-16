@@ -1,6 +1,6 @@
 #pragma once
 
-#include "stdint.h"
+#include "types.cuh"
 #include "spalias.cuh"
 
 namespace gplda {
@@ -8,10 +8,10 @@ namespace gplda {
 class Poisson {
   public:
     SpAlias* pois_alias;
-    uint32_t max_lambda;
-    uint32_t max_value;
-    float beta;
-    Poisson(uint32_t ml, uint32_t mv, float b);
+    u32 max_lambda;
+    u32 max_value;
+    f32 beta;
+    Poisson(u32 ml, u32 mv, f32 b);
     ~Poisson();
 };
 
