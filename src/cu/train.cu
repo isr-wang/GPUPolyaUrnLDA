@@ -155,7 +155,7 @@ extern "C" void sample_z_async(Buffer* buffer) {
   compute_d_idx<<<1,GPLDA_COMPUTE_D_IDX_BLOCKDIM,0,*buffer->stream>>>(buffer->gpu_d_len, buffer->gpu_d_idx, buffer->n_docs);
 
   // sample the topic indicators
-  warp_sample_topics<<<buffer->n_docs,GPLDA_WARP_SAMPLE_TOPICS_BLOCKDIM,0,*buffer->stream>>>(args->buffer_size, buffer->n_docs, buffer->gpu_z, buffer->gpu_w, buffer->gpu_d_len, buffer->gpu_d_idx, buffer->gpu_K_d, buffer->gpu_temp, args->K, args->V, args->max_K_d, Phi->dense, alias->prob, alias->alias, buffer->gpu_rng);
+  warp_sample_topics<<<1,32,0,*buffer->stream>>>(args->buffer_size, buffer->n_docs, buffer->gpu_z, buffer->gpu_w, buffer->gpu_d_len, buffer->gpu_d_idx, buffer->gpu_K_d, buffer->gpu_temp, args->K, args->V, args->max_K_d, Phi->dense, alias->prob, alias->alias, buffer->gpu_rng);
   rng_advance<<<1,1,0,*buffer->stream>>>(2*args->buffer_size,Phi_rng);
 
   // copy z back to host

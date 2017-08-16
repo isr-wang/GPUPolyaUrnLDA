@@ -61,9 +61,17 @@ __device__ __forceinline__ uint32_t draw_wary_search(float u) {
   return 0;
 }
 
-__device__ __forceinline__ void count_topics(uint32_t* z, uint32_t document_size, HashMap* m, void* temp, curandStatePhilox4_32_10_t* rng) {
+__device__ __forceinline__ void count_topics(uint32_t* z, uint32_t document_size, HashMap* m, void* temp, int32_t lane_idx, curandStatePhilox4_32_10_t* rng) {
+  // initialize the hash table
   hash_map_init(m, temp, document_size, warpSize, rng);
+
   // loop over z, add to m
+  for(int32_t offset = 0; offset < document_size / warpSize + 1; ++offset) {
+    int32_t i = offset * warpSize + lane_idx;
+    if(i < document_size) {
+      hash_map_accumulate(z[i], i, m);
+    }
+  }
 }
 
 __device__ __forceinline__ float compute_product_cumsum(uint32_t* mPhi, HashMap* m, float* Phi_dense, int32_t warp_idx, cub::WarpScan<int32_t>::TempStorage* temp) {
@@ -78,11 +86,11 @@ __global__ void warp_sample_topics(uint32_t size, uint32_t n_docs,
     float* Phi_dense,
     float** prob, uint32_t** alias, curandStatePhilox4_32_10_t* rng) {
   // initialize variables
+  int32_t lane_idx = threadIdx.x % warpSize;
+  int32_t warp_idx = threadIdx.x / warpSize;
   curandStatePhilox4_32_10_t warp_rng = rng[0];
   HashMap m;
   uint32_t** mPhi = (uint32_t**) &m.temp_data;
-  int32_t lane_idx = threadIdx.x % warpSize;
-  int32_t warp_idx = threadIdx.x / warpSize;
   __shared__ typename cub::WarpScan<int32_t>::TempStorage warp_scan_temp[1];
 
   // loop over documents
@@ -90,18 +98,16 @@ __global__ void warp_sample_topics(uint32_t size, uint32_t n_docs,
     // count topics in document
     uint32_t warp_d_len = d_len[i];
     uint32_t warp_d_idx = d_idx[i];
-    count_topics(z + warp_d_idx * sizeof(uint32_t), warp_d_len, &m, temp, &warp_rng);
+    count_topics(z + warp_d_idx * sizeof(uint32_t), warp_d_len, &m, temp, lane_idx, &warp_rng);
 
     // loop over words
     for(int32_t j = 0; j < warp_d_len; ++j) {
       // load z,w from global memory
       uint32_t warp_z = z[warp_d_idx + j];
-      uint32_t warp_w = 0;//w[warp_d_idx + j];
+      uint32_t warp_w = 0;//w[warp_d_idx + j]; // why is this broken?
 
       // remove current z from sufficient statistic
-      if(lane_idx == 0) {
-        hash_map_decrement(warp_z, &m);
-      }
+      hash_map_accumulate(warp_z, lane_idx == 0 ? -1 : 0, &m); // decrement on 1st lane without branching
 
       // compute m*phi and sigma_b
       float warp_sigma_a = 0.0f;
@@ -119,8 +125,8 @@ __global__ void warp_sample_topics(uint32_t size, uint32_t n_docs,
       }
 
       // add new z to sufficient statistic
+      hash_map_accumulate(warp_z, lane_idx == 0, &m); // increment on 1st lane without branching
       if(lane_idx == 0) {
-        hash_map_increment(warp_z, &m);
         z[warp_d_idx + j] = warp_z;
       }
     }
