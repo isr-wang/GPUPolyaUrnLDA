@@ -63,7 +63,7 @@ __device__ __forceinline__ u32 draw_wary_search(f32 u) {
 
 __device__ __forceinline__ void count_topics(u32* z, u32 document_size, HashMap<warp>* m, void* temp, i32 lane_idx, curandStatePhilox4_32_10_t* rng) {
   // initialize the hash table
-  m->init(temp, document_size, warpSize, rng);
+  m->init(temp, document_size, rng);
 
   // loop over z, add to m
   for(i32 offset = 0; offset < document_size / warpSize + 1; ++offset) {
@@ -89,8 +89,8 @@ __global__ void warp_sample_topics(u32 size, u32 n_docs,
   i32 lane_idx = threadIdx.x % warpSize;
   i32 warp_idx = threadIdx.x / warpSize;
   curandStatePhilox4_32_10_t warp_rng = rng[0];
-  HashMap<warp> m;
-  u32** mPhi = (u32**) &m.temp_data;
+  __shared__ HashMap<warp> m[1];
+  u32** mPhi = (u32**) &m[1].temp_data;
   __shared__ typename cub::WarpScan<i32>::TempStorage warp_scan_temp[1];
 
   // loop over documents
@@ -98,7 +98,7 @@ __global__ void warp_sample_topics(u32 size, u32 n_docs,
     // count topics in document
     u32 warp_d_len = d_len[i];
     u32 warp_d_idx = d_idx[i];
-    count_topics(z + warp_d_idx * sizeof(u32), warp_d_len, &m, temp, lane_idx, &warp_rng);
+    count_topics(z + warp_d_idx * sizeof(u32), warp_d_len, &m[1], temp, lane_idx, &warp_rng);
 
     // loop over words
     for(i32 j = 0; j < warp_d_len; ++j) {
@@ -107,11 +107,11 @@ __global__ void warp_sample_topics(u32 size, u32 n_docs,
       u32 warp_w = 0;//w[warp_d_idx + j]; // why is this broken?
 
       // remove current z from sufficient statistic
-      m.accumulate(warp_z, lane_idx == 0 ? -1 : 0); // decrement on 1st lane without branching
+      m[1].accumulate(warp_z, lane_idx == 0 ? -1 : 0); // decrement on 1st lane without branching
 
       // compute m*phi and sigma_b
       f32 warp_sigma_a = 0.0f;
-      f32 sigma_b = compute_product_cumsum(*mPhi, &m, Phi_dense, warp_idx, warp_scan_temp);
+      f32 sigma_b = compute_product_cumsum(*mPhi, &m[1], Phi_dense, warp_idx, warp_scan_temp);
 
       // update z
       f32 u1 = curand_uniform(&warp_rng);
@@ -125,7 +125,7 @@ __global__ void warp_sample_topics(u32 size, u32 n_docs,
       }
 
       // add new z to sufficient statistic
-      m.accumulate(warp_z, lane_idx == 0); // increment on 1st lane without branching
+      m[1].accumulate(warp_z, lane_idx == 0); // increment on 1st lane without branching
       if(lane_idx == 0) {
         z[warp_d_idx + j] = warp_z;
       }
