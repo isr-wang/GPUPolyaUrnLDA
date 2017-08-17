@@ -8,6 +8,7 @@
 
 namespace gplda {
 
+template<SynchronizationType sync_type>
 struct HashMap {
   u32 size;
   u32 num_elements;
@@ -132,7 +133,9 @@ struct HashMap {
       kv = atomicExch(&this->stash[slot], kv);
     }
 
-  //  __syncthreads();
+    if(sync_type == block) {
+      __syncthreads();
+    }
 
     // if key is still present, stash collided, so rebuild table
     if(kv != GPLDA_HASH_EMPTY) {
