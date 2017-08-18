@@ -27,13 +27,14 @@ __global__ void test_hash_map_set(void* map_storage, u32 size, u32 num_elements,
   // insert elements
   for(i32 offset = 0; offset < num_elements / dim + 1; ++offset) {
     u32 i = offset * dim + thread_idx;
-    m->set(i, i);
+    m->set(i, i < num_elements ? i : 0);
   }
 
   // retrieve elements
   for(i32 offset = 0; offset < num_elements / dim + 1; ++offset) {
     i32 i = offset * dim + thread_idx;
     if(i < num_elements) {
+      printf("%d:%d\n",i,m->get(i));
       out[i] = m->get(i);
     }
   }
@@ -41,7 +42,7 @@ __global__ void test_hash_map_set(void* map_storage, u32 size, u32 num_elements,
 
 void test_hash_map() {
   constexpr u32 size = 10000;
-  constexpr u32 num_elements = 6000;
+  constexpr u32 num_elements = 5000;
   constexpr u32 map_size = 2 * (size + GPLDA_HASH_STASH_SIZE);
 
   curandStatePhilox4_32_10_t* rng;
@@ -52,8 +53,10 @@ void test_hash_map() {
   void* map;
   cudaMalloc(&map, map_size * sizeof(u64)) >> GPLDA_CHECK;
   u64* map_host = new u64[map_size];
+
   u32* out;
   cudaMalloc(&out, num_elements * sizeof(u32)) >> GPLDA_CHECK;
+  u32* out_host = new u32[num_elements];
 
   test_hash_map_init<gplda::warp><<<1,32>>>(map, size, rng);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
@@ -78,14 +81,18 @@ void test_hash_map() {
   test_hash_map_set<gplda::warp><<<1,32>>>(map, size, num_elements, out, rng);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 
-  cudaMemcpy(map_host, out, num_elements * sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
+  cudaMemcpy(out_host, out, num_elements * sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
 
   for(i32 i = 0; i < num_elements; ++i) {
-    assert(map_host[i] == i);
-    map_host[i] = 0;
+    if(out_host[i] != i) {
+      printf("incorrect value: %d:%d\n",out_host[i],i);
+    }
+    assert(out_host[i] == i);
+    out_host[i] = 0;
   }
 
   cudaFree(out);
+  delete[] out_host;
   cudaFree(map);
   delete[] map_host;
   cudaFree(rng);

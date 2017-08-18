@@ -4,6 +4,9 @@
 #include "tuning.cuh"
 #include <curand_kernel.h> // need to add -lcurand to nvcc flags
 
+#include <cstdio>
+#include "assert.h"
+
 #define GPLDA_HASH_EMPTY 0xffffffff00000000
 
 namespace gplda {
@@ -167,8 +170,7 @@ struct HashMap {
     for(i32 offset = 0; offset < GPLDA_HASH_STASH_SIZE / dim + 1; ++offset) {
       i32 i = offset * dim + thread_idx;
       if(i < GPLDA_HASH_STASH_SIZE) {
-        kv = temp_stash[i];
-        set_no_rebuild(kv);
+        set_no_rebuild(temp_stash[i]);
       }
     }
 
@@ -176,8 +178,7 @@ struct HashMap {
     for(i32 offset = 0; offset < size / dim + 1; ++offset) {
       i32 i = offset * dim + thread_idx;
       if(i < size) {
-        kv = temp_data[i];
-        set_no_rebuild(kv);
+        set_no_rebuild(temp_data[i]);
       }
     }
 
@@ -226,7 +227,7 @@ struct HashMap {
 
 
 
-  __device__ __forceinline__ void set_no_rebuild(u64 kv) {
+  __device__ __forceinline__ u64 set_no_rebuild(u64 kv) {
     // get thread-specific variables
     u32* a = this->a;
     u32* b = this->b;
@@ -240,7 +241,7 @@ struct HashMap {
     if(right_32_bits(kv) != 0) {
       u32 current_a = a[0];
       u32 current_b = b[0];
-      for(i32 i = 0; i < GPLDA_HASH_MAX_ITERATIONS; ++i) {
+      for(i32 i = 0; i < 7 * (32 - __clz(size)); ++i) { // fast log base 2
         i32 slot = hash_fn(kv, current_a, current_b, size);
         kv = atomicExch(&data[slot],kv);
 
@@ -264,18 +265,21 @@ struct HashMap {
       i32 slot = hash_fn(kv, a_stash, b_stash, GPLDA_HASH_STASH_SIZE);
       kv = atomicExch(&stash[slot], kv);
     }
+
+    // return whatever key remains
+    return kv;
   }
 
   __device__ __forceinline__ void set(u64 kv) {
     // first, set the value
-    set_no_rebuild(kv);
+    kv = set_no_rebuild(kv);
 
     // check if stash collided, and if so, rebuild table
     if(sync_type == block) {
       // need to synchronize and broadcast to ensure entire block enters rebuild
       __syncthreads();
       if(kv != GPLDA_HASH_EMPTY) {
-        num_elements = -1 | num_elements; // flag value to indicate needs rebuild
+        num_elements |= -1; // set sign bit to 1 to indicate needs rebuild
       }
       __syncthreads();
       if(num_elements < 0) {
@@ -283,6 +287,7 @@ struct HashMap {
       }
     } else {
       if(kv != GPLDA_HASH_EMPTY) {
+        printf("triggering rebuild on %lX\n",kv);
         rebuild(kv);
       }
     }
@@ -299,7 +304,7 @@ struct HashMap {
 
 
   __device__ __forceinline__ void accumulate(u32 key, i32 diff) {
-    u32 value = get(key);
+
   }
 };
 
