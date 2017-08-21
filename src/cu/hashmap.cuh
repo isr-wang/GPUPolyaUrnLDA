@@ -161,14 +161,14 @@ struct HashMap {
     }
 
     // place keys that collided first
-    set_no_rebuild(kv);
+    insert_no_rebuild(kv);
 
     // insert elements that were in stash
     #pragma unroll
     for(i32 offset = 0; offset < GPLDA_HASH_STASH_SIZE / dim + 1; ++offset) {
       i32 i = offset * dim + thread_idx;
       if(i < GPLDA_HASH_STASH_SIZE) {
-        set_no_rebuild(temp_stash[i]);
+        insert_no_rebuild(temp_stash[i]);
       }
     }
 
@@ -176,7 +176,7 @@ struct HashMap {
     for(i32 offset = 0; offset < size / dim + 1; ++offset) {
       i32 i = offset * dim + thread_idx;
       if(i < size) {
-        set_no_rebuild(temp_data[i]);
+        insert_no_rebuild(temp_data[i]);
       }
     }
 
@@ -225,7 +225,7 @@ struct HashMap {
 
 
 
-  __device__ __forceinline__ u64 set_no_rebuild(u64 kv) {
+  __device__ __forceinline__ u64 insert_no_rebuild(u64 kv) {
     // get thread-specific variables
     u32* a = this->a;
     u32* b = this->b;
@@ -268,19 +268,19 @@ struct HashMap {
     return kv;
   }
 
-  __device__ __forceinline__ void set(u64 kv) {
+  __device__ __forceinline__ void insert(u64 kv) {
     // first, set the value
-    kv = set_no_rebuild(kv);
+    kv = insert_no_rebuild(kv);
 
     // check if stash collided, and if so, rebuild table
     if(sync_type == block) {
       // need to synchronize and broadcast to ensure entire block enters rebuild
       __syncthreads();
       if(kv != GPLDA_HASH_EMPTY) {
-        num_elements |= -1; // set sign bit to 1 to indicate needs rebuild
+        this->num_elements |= -1; // set sign bit to 1 to indicate needs rebuild
       }
       __syncthreads();
-      if(num_elements < 0) {
+      if(this->num_elements < 0) {
         rebuild(kv);
       }
     } else {
@@ -293,8 +293,8 @@ struct HashMap {
 
 
 
-  __device__ __forceinline__ void set(u32 key, u32 value) {
-    set((u64) key << 32 | value);
+  __device__ __forceinline__ void insert(u32 key, u32 value) {
+    insert((u64) key << 32 | value);
   }
 
 

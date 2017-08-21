@@ -19,7 +19,7 @@ __global__ void test_hash_map_init(void* map_storage, u32 size, curandStatePhilo
 }
 
 template<gplda::SynchronizationType sync_type>
-__global__ void test_hash_map_set(void* map_storage, u32 size, u32 num_elements, u32* out, curandStatePhilox4_32_10_t* rng) {
+__global__ void test_hash_map_insert(void* map_storage, u32 size, u32 num_elements, u32* out, curandStatePhilox4_32_10_t* rng) {
   __shared__ gplda::HashMap<sync_type> m[1];
   m->init(map_storage, size, rng);
   i32 dim = (sync_type == gplda::block) ? blockDim.x : warpSize;
@@ -27,7 +27,7 @@ __global__ void test_hash_map_set(void* map_storage, u32 size, u32 num_elements,
   // insert elements
   for(i32 offset = 0; offset < num_elements / dim + 1; ++offset) {
     u32 i = offset * dim + thread_idx;
-    m->set(i, i < num_elements ? i : 0);
+    m->insert(i, i < num_elements ? i : 0);
   }
 
   // retrieve elements
@@ -41,7 +41,7 @@ __global__ void test_hash_map_set(void* map_storage, u32 size, u32 num_elements,
 
 void test_hash_map() {
   constexpr u32 size = 10000;
-  constexpr u32 num_elements = 10000; // large contention to ensure stash is used
+  constexpr u32 num_elements = 9000; // large contention to ensure stash is used
   constexpr u32 map_size = 2 * (size + GPLDA_HASH_STASH_SIZE);
 
   curandStatePhilox4_32_10_t* rng;
@@ -77,7 +77,7 @@ void test_hash_map() {
     map_host[i] = 0;
   }
 
-  test_hash_map_set<gplda::warp><<<1,32>>>(map, size, num_elements, out, rng);
+  test_hash_map_insert<gplda::warp><<<1,32>>>(map, size, num_elements, out, rng);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 
   cudaMemcpy(out_host, out, num_elements * sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
