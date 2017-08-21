@@ -34,7 +34,6 @@ __global__ void test_hash_map_set(void* map_storage, u32 size, u32 num_elements,
   for(i32 offset = 0; offset < num_elements / dim + 1; ++offset) {
     i32 i = offset * dim + thread_idx;
     if(i < num_elements) {
-      printf("%d:%d\n",i,m->get(i));
       out[i] = m->get(i);
     }
   }
@@ -42,7 +41,7 @@ __global__ void test_hash_map_set(void* map_storage, u32 size, u32 num_elements,
 
 void test_hash_map() {
   constexpr u32 size = 10000;
-  constexpr u32 num_elements = 5000;
+  constexpr u32 num_elements = 10000; // large contention to ensure stash is used
   constexpr u32 map_size = 2 * (size + GPLDA_HASH_STASH_SIZE);
 
   curandStatePhilox4_32_10_t* rng;
@@ -84,9 +83,6 @@ void test_hash_map() {
   cudaMemcpy(out_host, out, num_elements * sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
 
   for(i32 i = 0; i < num_elements; ++i) {
-    if(out_host[i] != i) {
-      printf("incorrect value: %d:%d\n",out_host[i],i);
-    }
     assert(out_host[i] == i);
     out_host[i] = 0;
   }

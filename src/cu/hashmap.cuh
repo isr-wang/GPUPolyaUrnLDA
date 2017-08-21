@@ -33,13 +33,11 @@ struct HashMap {
     return (u32) x;
   }
 
-  __device__ __forceinline__ i32 hash_fn(u64 kv, i32 a, i32 b, i32 slot) {
-    i32 key = left_32_bits(kv);
+  __device__ __forceinline__ i32 hash_fn(u32 key, i32 a, i32 b, i32 slot) {
     return ((a * key + b) % 334214459) % slot;
   }
 
-  __device__ __forceinline__ i32 hash_idx(u64 kv, i32 slot, u32* a, u32* b, u32 size) {
-    i32 key = left_32_bits(kv);
+  __device__ __forceinline__ i32 hash_idx(i32 key, i32 slot, u32* a, u32* b, u32 size) {
     #pragma unroll
     for(i32 i = 0; i < GPLDA_HASH_NUM_FUNCTIONS; ++i) {
       i32 possible_slot = hash_fn(key, a[i], b[i], size);
@@ -242,7 +240,7 @@ struct HashMap {
       u32 current_a = a[0];
       u32 current_b = b[0];
       for(i32 i = 0; i < 7 * (32 - __clz(size)); ++i) { // fast log base 2
-        i32 slot = hash_fn(kv, current_a, current_b, size);
+        i32 slot = hash_fn(left_32_bits(kv), current_a, current_b, size);
         kv = atomicExch(&data[slot],kv);
 
         // if slot was empty, exit
@@ -251,7 +249,7 @@ struct HashMap {
         }
 
         // determine which hash function was used, try again
-        i32 j = hash_idx(kv, slot, a, b, size);
+        i32 j = hash_idx(left_32_bits(kv), slot, a, b, size);
         current_a = a[j+1 % GPLDA_HASH_NUM_FUNCTIONS];
         current_b = b[j+1 % GPLDA_HASH_NUM_FUNCTIONS];
       }
@@ -262,7 +260,7 @@ struct HashMap {
 
     // if key is still present, try stash
     if(kv != GPLDA_HASH_EMPTY) {
-      i32 slot = hash_fn(kv, a_stash, b_stash, GPLDA_HASH_STASH_SIZE);
+      i32 slot = hash_fn(left_32_bits(kv), a_stash, b_stash, GPLDA_HASH_STASH_SIZE);
       kv = atomicExch(&stash[slot], kv);
     }
 
@@ -287,7 +285,6 @@ struct HashMap {
       }
     } else {
       if(kv != GPLDA_HASH_EMPTY) {
-        printf("triggering rebuild on %lX\n",kv);
         rebuild(kv);
       }
     }
