@@ -250,8 +250,8 @@ struct HashMap {
 
         // determine which hash function was used, try again
         i32 j = hash_idx(left_32_bits(kv), slot, a, b, size);
-        current_a = a[j+1 % GPLDA_HASH_NUM_FUNCTIONS];
-        current_b = b[j+1 % GPLDA_HASH_NUM_FUNCTIONS];
+        current_a = a[(j+1) % GPLDA_HASH_NUM_FUNCTIONS];
+        current_b = b[(j+1) % GPLDA_HASH_NUM_FUNCTIONS];
       }
     } else {
       // we're setting a key to zero, so do nothing
