@@ -15,7 +15,7 @@ namespace gplda_test {
 template<gplda::SynchronizationType sync_type>
 __global__ void test_hash_map_init(void* map_storage, u32 size, curandStatePhilox4_32_10_t* rng) {
   __shared__ gplda::HashMap<sync_type> m[1];
-  m->init(map_storage, size, rng);
+  m->init(map_storage, size, size, rng);
 }
 
 
@@ -23,7 +23,7 @@ __global__ void test_hash_map_init(void* map_storage, u32 size, curandStatePhilo
 template<gplda::SynchronizationType sync_type, i32 rebuild>
 __global__ void test_hash_map_insert(void* map_storage, u32 size, u32 num_elements, u32* out, curandStatePhilox4_32_10_t* rng) {
   __shared__ gplda::HashMap<sync_type> m[1];
-  m->init(map_storage, size, rng);
+  m->init(map_storage, num_elements, size, rng);
   i32 dim = (sync_type == gplda::block) ? blockDim.x : warpSize;
   i32 thread_idx = threadIdx.x % dim;
 

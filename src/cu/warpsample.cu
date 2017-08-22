@@ -61,9 +61,9 @@ __device__ __forceinline__ u32 draw_wary_search(f32 u) {
   return 0;
 }
 
-__device__ __forceinline__ void count_topics(u32* z, u32 document_size, HashMap<warp>* m, void* temp, i32 lane_idx, curandStatePhilox4_32_10_t* rng) {
+__device__ __forceinline__ void count_topics(u32* z, u32 document_size, u32 max_K_d, HashMap<warp>* m, void* temp, i32 lane_idx, curandStatePhilox4_32_10_t* rng) {
   // initialize the hash table
-  m->init(temp, document_size, rng);
+  m->init(temp, document_size, max_K_d, rng);
 
   // loop over z, add to m
   for(i32 offset = 0; offset < document_size / warpSize + 1; ++offset) {
@@ -98,7 +98,7 @@ __global__ void warp_sample_topics(u32 size, u32 n_docs,
     // count topics in document
     u32 warp_d_len = d_len[i];
     u32 warp_d_idx = d_idx[i];
-    count_topics(z + warp_d_idx * sizeof(u32), warp_d_len, &m[1], temp, lane_idx, &warp_rng);
+    count_topics(z + warp_d_idx * sizeof(u32), warp_d_len, max_K_d, &m[1], temp, lane_idx, &warp_rng);
 
     // loop over words
     for(i32 j = 0; j < warp_d_len; ++j) {

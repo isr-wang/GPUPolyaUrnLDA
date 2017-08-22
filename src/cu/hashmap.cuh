@@ -14,7 +14,7 @@ namespace gplda {
 template<SynchronizationType sync_type>
 struct HashMap {
   u32 size;
-  i32 num_elements;
+  u32 max_size;
   u64* data;
   u64* stash;
   u64* temp_data;
@@ -23,6 +23,7 @@ struct HashMap {
   u32 b[GPLDA_HASH_NUM_FUNCTIONS];
   u32 a_stash;
   u32 b_stash;
+  u32 rebuild_temp;
   curandStatePhilox4_32_10_t* rng;
 
   __device__ __forceinline__ u32 left_32_bits(u64 x) {
@@ -52,24 +53,25 @@ struct HashMap {
 
 
 
-  __device__ inline void init(void* temp, u32 size, curandStatePhilox4_32_10_t* rng) {
+  __device__ inline void init(void* temp, u32 size, u32 max_size, curandStatePhilox4_32_10_t* rng) {
     // calculate initialization variables common for all threads
     i32 dim = (sync_type == block) ? blockDim.x : warpSize;
     i32 thread_idx = threadIdx.x % dim;
     u64* data = (u64*) temp;
-    u64* stash = data + size;
+    u64* stash = data + max_size;
 
     // set map parameters and calculate random hash functions
     if(thread_idx == 0) {
       this->size = size;
-      this->num_elements = 0;
+      this->max_size = max_size;
       this->data = data;
       this->stash = stash;
       this->temp_data = this->stash + GPLDA_HASH_STASH_SIZE; // no sizeof for typed pointer arithmetic
-      this->temp_stash = this->temp_data + size; // no sizeof for typed pointer arithmetic
+      this->temp_stash = this->temp_data + max_size; // no sizeof for typed pointer arithmetic
+      this->rebuild_temp = 0;
       this->rng = rng;
       #pragma unroll
-      for(i32 i = 0; i < GPLDA_HASH_NUM_FUNCTIONS; ++i) {
+      for(i32 i = 0; i < GPLDA_HASH_NUM_FUNCTIONS; ++i) { // this->rng must be set
         this->a[i] = __float2uint_rz(size * curand_uniform(this->rng));
         this->b[i] = __float2uint_rz(size * curand_uniform(this->rng));
       }
@@ -111,6 +113,8 @@ struct HashMap {
 
     // first, swap the pointers and generate new hash functions
     if(thread_idx == 0) {
+      this->rebuild_temp = this->size;
+      this->size = umin(this->max_size, __float2uint_rz(this->size * GPLDA_HASH_GROWTH_RATE));
       u64* d = this->data;
       u64* s = this->stash;
       this->data = this->temp_data;
@@ -133,6 +137,7 @@ struct HashMap {
 
     // get updated variables
     u32 size = this->size;
+    u32 rebuild_temp = this->rebuild_temp;
     u64* data = this->data;
     u64* stash = this->stash;
     u64* temp_data = this->temp_data;
@@ -173,9 +178,9 @@ struct HashMap {
     }
 
     // iterate over map and place remaining keys
-    for(i32 offset = 0; offset < size / dim + 1; ++offset) {
+    for(i32 offset = 0; offset < rebuild_temp / dim + 1; ++offset) {
       i32 i = offset * dim + thread_idx;
-      if(i < size) {
+      if(i < rebuild_temp) {
         insert_no_rebuild(temp_data[i]);
       }
     }
@@ -183,6 +188,9 @@ struct HashMap {
     // synchronize to ensure rebuilding is set to false everywhere
     if(sync_type == block) {
       __syncthreads();
+      if(thread_idx == 0) {
+        this->rebuild_temp = 0;
+      }
     }
   }
 
@@ -277,10 +285,10 @@ struct HashMap {
       // need to synchronize and broadcast to ensure entire block enters rebuild
       __syncthreads();
       if(kv != GPLDA_HASH_EMPTY) {
-        this->num_elements |= -1; // set sign bit to 1 to indicate needs rebuild
+        this->rebuild_temp = 1; // set sign bit to 1 to indicate needs rebuild
       }
       __syncthreads();
-      if(this->num_elements < 0) {
+      if(this->rebuild_temp == 1) {
         rebuild(kv);
       }
     } else {
