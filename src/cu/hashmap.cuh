@@ -114,7 +114,7 @@ struct HashMap {
     // first, swap the pointers and generate new hash functions
     if(thread_idx == 0) {
       this->rebuild_temp = this->size;
-      this->size = umin(this->max_size, __float2uint_rz(this->size * GPLDA_HASH_GROWTH_RATE));
+      this->size = umin(this->max_size, __float2uint_rz(this->size * GPLDA_HASH_GROWTH_RATE) + warpSize);
       u64* d = this->data;
       u64* s = this->stash;
       this->data = this->temp_data;
@@ -292,7 +292,7 @@ struct HashMap {
         rebuild(kv);
       }
     } else {
-      if(kv != GPLDA_HASH_EMPTY) {
+      if(__any(kv != GPLDA_HASH_EMPTY)) {
         rebuild(kv);
       }
     }
