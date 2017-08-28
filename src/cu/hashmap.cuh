@@ -200,8 +200,13 @@ struct HashMap {
 
   __device__ __forceinline__ u32 get(u32 key) {
     // get thread-specific variables
-    u32* a = this->a;
-    u32* b = this->b;
+    u32 a[GPLDA_HASH_NUM_FUNCTIONS];
+    u32 b[GPLDA_HASH_NUM_FUNCTIONS];
+    #pragma unroll
+    for(i32 i = 0; i < GPLDA_HASH_NUM_FUNCTIONS; ++i) {
+      a[i] = this->a[i];
+      b[i] = this->b[i];
+    }
     u64* data = this->data;
     u64* stash = this->stash;
     u32 a_stash = this->a_stash;
@@ -235,8 +240,13 @@ struct HashMap {
 
   __device__ __forceinline__ u64 insert_no_rebuild(u64 kv) {
     // get thread-specific variables
-    u32* a = this->a;
-    u32* b = this->b;
+    u32 a[GPLDA_HASH_NUM_FUNCTIONS];
+    u32 b[GPLDA_HASH_NUM_FUNCTIONS];
+    #pragma unroll
+    for(i32 i = 0; i < GPLDA_HASH_NUM_FUNCTIONS; ++i) {
+      a[i] = this->a[i];
+      b[i] = this->b[i];
+    }
     u64* data = this->data;
     u64* stash = this->stash;
     u32 a_stash = this->a_stash;
@@ -308,8 +318,57 @@ struct HashMap {
 
 
 
-  __device__ __forceinline__ void accumulate(u32 key, i32 diff) {
+  __device__ __forceinline__ void accumulate_no_insert(u32 key, i32* diff) {
+    // get thread-specific variables
+    u32 a[GPLDA_HASH_NUM_FUNCTIONS];
+    u32 b[GPLDA_HASH_NUM_FUNCTIONS];
+    #pragma unroll
+    for(i32 i = 0; i < GPLDA_HASH_NUM_FUNCTIONS; ++i) {
+      a[i] = this->a[i];
+      b[i] = this->b[i];
+    }
+    u64* data = this->data;
+    u64* stash = this->stash;
+    u32 a_stash = this->a_stash;
+    u32 b_stash = this->b_stash;
+    u32 size = this->size;
 
+    // accumulate all keys that are already present: first, check table
+    #pragma unroll
+    for(i32 i = 0; i < GPLDA_HASH_NUM_FUNCTIONS; ++i) {
+      if(*diff != 0) {
+        i32 slot = hash_fn(key, a[i], b[i], size);
+        u64 kv = data[slot];
+        if(left_32_bits(kv) == key && (i32) right_32_bits(kv) >= *diff) {
+          printf("add:%d:%lX:%lX\n",*diff,&data[slot],data[slot]);
+          atomicAdd((i32*) &data[slot], *diff);
+          printf("add2:%d:%lX:%lX\n",*diff,&data[slot],data[slot]);
+          *diff = 0;
+        }
+      }
+    }
+
+    // accumulate all keys that are already present: second, check stash
+    if(*diff != 0) {
+      i32 slot = hash_fn(key, a_stash, b_stash, GPLDA_HASH_STASH_SIZE);
+      u64 kv = stash[slot];
+      if(left_32_bits(kv) == key && (i32) right_32_bits(kv) >= *diff) {
+        atomicAdd((i32*) &stash[slot], *diff);
+        *diff = 0;
+      }
+    }
+  }
+
+  __device__ __forceinline__ void accumulate(u32 key, u32 diff) {
+    accumulate_no_insert(key,(i32*) &diff);
+
+    // ensure block has finished accumulating before moving values is allowed
+    if(sync_type == block) {
+      __syncthreads();
+    }
+
+    // key is not present: insert it
+    insert(key, diff);
   }
 };
 

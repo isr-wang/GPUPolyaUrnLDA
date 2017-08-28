@@ -98,7 +98,7 @@ __global__ void warp_sample_topics(u32 size, u32 n_docs,
     // count topics in document
     u32 warp_d_len = d_len[i];
     u32 warp_d_idx = d_idx[i];
-    count_topics(z + warp_d_idx * sizeof(u32), warp_d_len, max_K_d, &m[1], temp, lane_idx, &warp_rng);
+//    count_topics(z + warp_d_idx * sizeof(u32), warp_d_len, max_K_d, &m[1], temp, lane_idx, &warp_rng);
 
     // loop over words
     for(i32 j = 0; j < warp_d_len; ++j) {
@@ -107,7 +107,7 @@ __global__ void warp_sample_topics(u32 size, u32 n_docs,
       u32 warp_w = 0;//w[warp_d_idx + j]; // why is this broken?
 
       // remove current z from sufficient statistic
-      m[1].accumulate(warp_z, lane_idx == 0 ? -1 : 0); // decrement on 1st lane without branching
+//      m[1].accumulate_no_insert(warp_z, &(lane_idx == 0 ? -1 : 0)); // decrement on 1st lane without branching
 
       // compute m*phi and sigma_b
       f32 warp_sigma_a = 0.0f;
@@ -125,7 +125,7 @@ __global__ void warp_sample_topics(u32 size, u32 n_docs,
       }
 
       // add new z to sufficient statistic
-      m[1].accumulate(warp_z, lane_idx == 0); // increment on 1st lane without branching
+//      m[1].accumulate(warp_z, lane_idx == 0); // increment on 1st lane without branching
       if(lane_idx == 0) {
         z[warp_d_idx + j] = warp_z;
       }

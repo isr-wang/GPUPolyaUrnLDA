@@ -277,5 +277,21 @@ We need to store $\v{V}$ for three reasons: (1) in the preprocess step, since we
 
 DONE. I have designed and implemented a synchronization-free non-divergent extension of Vose's method.
 
+\section{Hash Map}
+
+Where HashMap is used:
+
+\begin{enumerate}
+\item build m: 				accumulate<warp>(1)
+\item remove from m			accumulate-no-insert<thread>(-1)
+\item compute m*Phi			get<warp>
+\item add to m				accumulate<thread>(1)
+\item add to n (hashmap for every topic)	accumulate<???>(1)
+\item sample Phi rows: nonzero		---
+\item sample Phi rows: zero		insert<warp>
+\item normalize Phi			---
+\item transpose Phi			insert<block>
+\end{enumerate}
+
 
 \end{document}
