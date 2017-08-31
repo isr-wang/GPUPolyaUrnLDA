@@ -293,5 +293,50 @@ Where HashMap is used:
 \item transpose Phi			insert<block>
 \end{enumerate}
 
+\subsection{Lockfree Robin Hood Hashing}
+
+Robin Hood guarantees for fast lookup
+\begin{itemize}
+\item Stop when we hit an empty slot
+\item Stop when we hit a slot that's closer than the one we want
+\end{itemize}
+
+Insert
+\begin{itemize}
+\item Forward pass: compute Robin Hood path
+\begin{itemize}
+\item Start with the item's hash bucket, set counter to 0, set new to 1, and repeat until exit.
+\item Search linearly, incrementing counter, until we find either an empty slot, or a slot whose distance is less than than the counter
+\item If the slot is empty: place the item into that slot, and exit
+\item Else if slot is locked: wait until unlock.
+\item If new is 1: store the counter value in the backpointer, with a flag indicating that it is new, and set new to 0
+\item Else if new is 0: store a backpointer to the previous element in its slot
+\end{itemize}
+\item Backward pass: place item
+\begin{itemize}
+\item Start with empty slot, adding a backpointer to indicate it is being moved
+\item Atomically swap it with the slot pointed to by its backpointer
+\item Once we hit the new item's slot, if is stealable, place it into the slot
+\item If item is not stealable and does not have a backpointer, restart insertion
+\end{itemize}
+\end{itemize}
+
+Modification
+\begin{itemize}
+\item If item is present, atomically increment
+\item If item is not present, insert it
+\end{itemize}
+
+Deletion
+\begin{itemize}
+\item Add a tombstone element
+\end{itemize}
+
+Guarantees
+\begin{itemize}
+\item Items are always in the table, but might be in the table twice
+\item 
+\end{itemize}
+
 
 \end{document}
