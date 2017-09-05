@@ -335,8 +335,22 @@ Deletion
 Guarantees
 \begin{itemize}
 \item Items are always in the table, but might be in the table twice
-\item 
 \end{itemize}
+
+\subsection{Collaborative Robin Hood Hashing}
+
+Layout
+\begin{itemize}
+\item 1 bit: relocation flag
+\item 3 bit: hash backpointer \{none, buffer, $h^*_0$, $h_1$, $h_2$, $h_3$, $h_4$, $h_5$\}
+\item 4 bits: index backpointer \{$0,..,15$\}
+\item 20 bits: key
+\item 36 bits: value
+\end{itemize}
+
+Get2
+
+Accumulate2
 
 
 \end{document}
