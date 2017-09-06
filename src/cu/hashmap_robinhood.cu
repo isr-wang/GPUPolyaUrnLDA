@@ -22,6 +22,9 @@ union HashMapEntry {
     u64 value: 36;
   };
   u64 int_repr;
+  HashMapEntry(u64 ir) {
+    this->int_repr = ir;
+  }
   HashMapEntry(u32 r, u32 bh, u32 bs, u32 k, u64 v) {
     this->relocate = r;
     this->backpointer_hash = bh;
@@ -162,9 +165,8 @@ struct HashMap {
     i32 initial_slot = hash_slot(key);
     #pragma unroll
     for(i32 i = 0; i < GPLDA_HASH_MAX_NUM_LINES; ++i) {
-      // compute slot
+      // compute slot and retrieve entry
       i32 slot = rev_hash_fn(initial_slot, i);
-
       HashMapEntry entry = data[slot + half_lane_idx];
 
       // check if we found the key
@@ -184,31 +186,71 @@ struct HashMap {
     return 0;
   }
 
-  __device__ inline void try_accumulate2(u32 key, u32 diff) {
-    // shuffle key and diff to entire half warp
-    key = __shfl(key, 0, warpSize/2);
-    diff = __shfl(diff, 0, warpSize/2);
+  __device__ inline void try_accumulate2(u32 key, i32 diff) {
+    // determine half warp indices
     i32 half_lane_idx = threadIdx.x % (warpSize / 2);
     i32 half_warp_idx = threadIdx.x / (warpSize / 2);
     u32 half_lane_mask = 0x0000ffff << (((threadIdx.x % warpSize) / 16) * 4); // 4 if lane >= 16, 0 otherwise
+
+    // acquire ring buffer location
     i32 ring_buffer_start = 0;
-    i32 backpointer_hash;
-    i32 backpointer_slot;
+
+    // build entry to be inserted and shuffle to entire half warp
+    HashMapEntry halfwarp_entry = HashMapEntry(0,1,0,key,diff);
+    halfwarp_entry.int_repr = __shfl(halfwarp_entry.int_repr, 0, warpSize/2);
 
     // insert key into buffer
     if(half_lane_idx == 0) {
-      backpointer_hash = 1; // buffer
-      backpointer_slot = (ring_buffer_start + half_warp_idx) % GPLDA_HASH_MAX_NUM_LINES;
-      buffer[backpointer_slot] = HashMapEntry(0,0,0,key,diff);
+      i32 buffer_slot = (ring_buffer_start + half_warp_idx) % GPLDA_HASH_LINE_SIZE;
+      buffer[buffer_slot] = halfwarp_entry;
+      halfwarp_entry.backpointer_hash = 1; // buffer
+      halfwarp_entry.backpointer_slot = buffer_slot;
     }
 
-    // forward pass to find empty value, accumulate key if present
+    // forward pass: find empty value, accumulate key if present
+    i32 initial_slot = hash_slot(key);
+    i32 done = false;
+    for(i32 i = 0; i < 7 * (32 - __clz(size)); ++i) { // fast log base 2
+      // compute slot and retrieve entry
+      i32 slot = rev_hash_fn(initial_slot, i);
+      HashMapEntry thread_entry = data[slot + half_lane_idx];
+
+      // assuming Robin Hood guarantees have not kicked in yet, check if we found the key
+      if(halfwarp_entry.backpointer_hash == 1) {
+        if(thread_entry.key == key) {
+          // key found: accumulate, clear buffer, and exit if successful
+          HashMapEntry replacement = thread_entry;
+          replacement.value += diff;
+          // perform CAS, retrying if necessary
+          do {
+            HashMapEntry old = HashMapEntry(atomicCAS(&data[slot + half_lane_idx].int_repr, thread_entry.int_repr, replacement.int_repr));
+            if(old.int_repr == thread_entry.int_repr) {
+              buffer[halfwarp_entry.backpointer_slot] = HashMapEntry(0,0,0,GPLDA_HASH_EMPTY,0);
+              done = true;
+            } else if(old.key == thread_entry.key){
+              // value changed, but key did not: try another CAS
+              continue;
+            }
+          } while(false); // loop only through use of continue statement
+        }
+        if((__ballot(done == true) & half_lane_mask) != 0) {
+          return;
+        }
+      }
+
+      // key is not present: see if we can take some other key's slot
+
+    }
 
     // backward pass to insert value
+    while(true) {
+      break;
+    }
+
 
   }
 
-  __device__ __forceinline__ void accumulate2(u32 key, u32 diff) {
+  __device__ __forceinline__ void accumulate2(u32 key, i32 diff) {
     // try to accumulate
     try_accumulate2(key, diff);
 
