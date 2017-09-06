@@ -7,29 +7,41 @@
 #include <cstdio>
 #include "assert.h"
 
-#define GPLDA_HASH_EMPTY 0x00fffff000000000
+#define GPLDA_HASH_EMPTY 0xfffff // 20 bits
 #define GPLDA_HASH_LINE_SIZE 16
 #define GPLDA_HASH_MAX_NUM_LINES 6
 
-#define GPLDA_HASH_RELOCATION_NUM_BITS 1
-#define GPLDA_HASH_BP_HASH_NUM_BITS 3
-#define GPLDA_HASH_BP_SLOT_NUM_BITS 4
-#define GPLDA_HASH_KEY_NUM_BITS 20
-#define GPLDA_HASH_VALUE_NUM_BITS 36
-
 namespace gplda {
+
+union HashMapEntry {
+  struct {
+    u32 relocate: 1;
+    u32 backpointer_hash: 3;
+    u32 backpointer_slot: 4;
+    u32 key: 20;
+    u64 value: 36;
+  };
+  u64 int_repr;
+  HashMapEntry(u32 r, u32 bh, u32 bs, u32 k, u64 v) {
+    this->relocate = r;
+    this->backpointer_hash = bh;
+    this->backpointer_slot = bs;
+    this->key = k;
+    this->value = v;
+  }
+};
 
 template<SynchronizationType sync_type>
 struct HashMap {
   u32 size;
   u32 max_size;
-  u64* data;
-  u64* temp_data;
-  u64* buffer;
+  HashMapEntry* data;
+  HashMapEntry* temp_data;
+  HashMapEntry* buffer;
   u32 a;
   u32 b;
   u32 c[GPLDA_HASH_MAX_NUM_LINES - 1];
-  u32 rebuild_temp;
+  u32 needs_rebuild;
   curandStatePhilox4_32_10_t* rng;
 
   __device__ __forceinline__ u32 left_32_bits(u64 x) {
@@ -61,14 +73,6 @@ struct HashMap {
     }
   }
 
-  __device__ __forceinline__ u64 assemble_slot(u32 move, u32 bp_hash, u32 bp_slot, u32 key, u64 value) {
-    u64 move_64 = ((u64) move) << (GPLDA_HASH_BP_HASH_NUM_BITS + GPLDA_HASH_BP_SLOT_NUM_BITS + GPLDA_HASH_KEY_NUM_BITS + GPLDA_HASH_VALUE_NUM_BITS);
-    u64 bp_hash_64 = ((u64) bp_hash) << (GPLDA_HASH_BP_SLOT_NUM_BITS + GPLDA_HASH_KEY_NUM_BITS + GPLDA_HASH_VALUE_NUM_BITS);
-    u64 bp_slot_64 = ((u64) bp_slot) << (GPLDA_HASH_KEY_NUM_BITS + GPLDA_HASH_VALUE_NUM_BITS);
-    u64 key_64 = ((u64) key) << GPLDA_HASH_VALUE_NUM_BITS;
-    return move_64 | bp_hash_64 | bp_slot_64 | key_64 | value;
-  }
-
 
 
   __device__ __forceinline__ void sync() {
@@ -79,7 +83,7 @@ struct HashMap {
 
   __device__ inline void provide_buffer(u64* in_buffer) {
     if(threadIdx.x == 0) {
-      buffer = in_buffer;
+      buffer = (HashMapEntry*) in_buffer;
     }
     sync();
   }
@@ -99,11 +103,11 @@ struct HashMap {
       size = min((in_size / GPLDA_HASH_LINE_SIZE + 1) * GPLDA_HASH_LINE_SIZE, in_max_size);
 
       // perform pointer arithmetic
-      data = (u64*) temp;
+      data = (HashMapEntry*) in_data;
       temp_data = data + max_size; // no sizeof for typed pointer arithmetic
       buffer = temp_data + max_size; // no sizeof for typed pointer arithmetic
 
-      rebuild_temp = 0;
+      needs_rebuild = 0;
       rng = in_rng; // make sure this->rng is set before use
       a = __float2uint_rz(size * curand_uniform(rng));
       b = __float2uint_rz(size * curand_uniform(rng));
@@ -120,7 +124,7 @@ struct HashMap {
     for(i32 offset = 0; offset < size / dim + 1; ++offset) {
       i32 i = offset * dim + thread_idx;
       if(i < size) {
-        data[i] = GPLDA_HASH_EMPTY;
+        data[i] = HashMapEntry(0,0,0,GPLDA_HASH_EMPTY,0);
       }
     }
 
@@ -128,7 +132,7 @@ struct HashMap {
     for(i32 offset = 0; offset < GPLDA_HASH_LINE_SIZE / dim + 1; ++offset) {
       i32 i = offset * dim + thread_idx;
       if(i < GPLDA_HASH_LINE_SIZE) {
-        buffer[i] = GPLDA_HASH_EMPTY;
+        buffer[i] = HashMapEntry(0,0,0,GPLDA_HASH_EMPTY,0);
       }
     }
 
@@ -140,7 +144,7 @@ struct HashMap {
 
 
 
-  __device__ inline void rebuild(u64 kv) {
+  __device__ inline void rebuild() {
 
   }
 
@@ -148,7 +152,7 @@ struct HashMap {
 
 
 
-  __device__ __forceinline__ u32 get2(u32 key) {
+  __device__ inline u32 get2(u32 key) {
     // shuffle key to entire half-warp
     key = __shfl(key, 0, warpSize/2);
     i32 half_lane_idx = threadIdx.x % (warpSize / 2);
@@ -161,16 +165,16 @@ struct HashMap {
       // compute slot
       i32 slot = rev_hash_fn(initial_slot, i);
 
-      u64 kv = data[slot + half_lane_idx];
+      HashMapEntry entry = data[slot + half_lane_idx];
 
       // check if we found the key
-      u32 found = __ballot(left_32_bits(kv) == key) & half_lane_mask;
+      u32 found = __ballot(entry.key == key) & half_lane_mask;
       if(found != 0) {
-        return __shfl(right_32_bits(kv), __ffs(found), warpSize/2);
+        return __shfl(entry.value, __ffs(found), warpSize/2);
       }
 
       // check if Robin Hood guarantee indicates no key is present
-      u32 no_key = __ballot(kv == GPLDA_HASH_EMPTY || rev_hash_fn_idx(kv, slot) > i) & half_lane_mask;
+      u32 no_key = __ballot(entry.key == GPLDA_HASH_EMPTY || rev_hash_fn_idx(entry.key, slot) > i) & half_lane_mask;
       if(no_key != 0) {
         return 0;
       }
@@ -180,45 +184,39 @@ struct HashMap {
     return 0;
   }
 
-  __device__ __forceinline__ void accumulate2_no_rebuild(u32 key, u32 diff) {
+  __device__ inline void try_accumulate2(u32 key, u32 diff) {
     // shuffle key and diff to entire half warp
     key = __shfl(key, 0, warpSize/2);
     diff = __shfl(diff, 0, warpSize/2);
     i32 half_lane_idx = threadIdx.x % (warpSize / 2);
     i32 half_warp_idx = threadIdx.x / (warpSize / 2);
     u32 half_lane_mask = 0x0000ffff << (((threadIdx.x % warpSize) / 16) * 4); // 4 if lane >= 16, 0 otherwise
-    i32 buffer_start = 0;
+    i32 ring_buffer_start = 0;
+    i32 backpointer_hash;
+    i32 backpointer_slot;
 
     // insert key into buffer
     if(half_lane_idx == 0) {
-      buffer[(buffer_start + half_warp_idx) % GPLDA_HASH_MAX_NUM_LINES] = assemble_slot(0,0,0,key,diff);
+      backpointer_hash = 1; // buffer
+      backpointer_slot = (ring_buffer_start + half_warp_idx) % GPLDA_HASH_MAX_NUM_LINES;
+      buffer[backpointer_slot] = HashMapEntry(0,0,0,key,diff);
     }
 
-    // check buffer to make sure only inserted once: remove and accumulate with any key that has smaller index
-    u64 kv = buffer[half_lane_idx];
-    u32 found = __ballot(left_32_bits(kv) == key) & half_lane_mask;
-    if(found != 0) {
-      // set relocation bit to 1
+    // forward pass to find empty value, accumulate key if present
 
-      // merge with other kv
-
-      // remove old kv
-
-    }
-
-    // find key in table, accumulate if present
-
-    // if key not found: insert into table
-
-
+    // backward pass to insert value
 
   }
 
   __device__ __forceinline__ void accumulate2(u32 key, u32 diff) {
     // try to accumulate
+    try_accumulate2(key, diff);
 
     // rebuild if too large
-
+    sync();
+    if(needs_rebuild == 1) {
+      rebuild();
+    }
   }
 };
 
