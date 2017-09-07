@@ -34,9 +34,6 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, u32 n_buffers) {
   // set the pointer to args struct
   args = init_args;
 
-  // if the types are broken, explode
-  assert(sizeof(u64) == 8 && sizeof(u32) == 4 && sizeof(i32) == 4 && sizeof(f32) == 4);
-
   // allocate and initialize cuBLAS
   cublas_handle = new cublasHandle_t;
   cublasCreate(cublas_handle) >> GPLDA_CHECK;

@@ -18,7 +18,7 @@ union HashMapEntry {
   struct {
     u32 relocate: 1;
     u32 backpointer_hash: 3;
-    u32 backpointer_slot: 4;
+    u32 backpointer_idx: 4;
     u32 key: 20;
     u64 value: 36;
   };
@@ -29,7 +29,7 @@ union HashMapEntry {
   HashMapEntry(u32 r, u32 bh, u32 bs, u32 k, u64 v) {
     this->relocate = r;
     this->backpointer_hash = bh;
-    this->backpointer_slot = bs;
+    this->backpointer_idx = bs;
     this->key = k;
     this->value = v;
   }
@@ -50,14 +50,6 @@ struct HashMap {
   u32 needs_rebuild;
   curandStatePhilox4_32_10_t* rng;
 
-  __device__ __forceinline__ u32 left_32_bits(u64 x) {
-    return (u32) (x >> 32);
-  }
-
-  __device__ __forceinline__ u32 right_32_bits(u64 x) {
-    return (u32) x;
-  }
-
   __device__ __forceinline__ i32 hash_fn(u32 key) {
     return (a * key + b) % 334214459;
   }
@@ -66,14 +58,18 @@ struct HashMap {
     return (hash_fn(key) % (size / GPLDA_HASH_LINE_SIZE)) * GPLDA_HASH_LINE_SIZE;
   }
 
-  __device__ __forceinline__ i32 rev_hash_fn(u32 key, i32 i) {
-    return i == 0 ? hash_fn(key) : key ^ c[(((c[0] * key + c[1]) % 334214459) + i - 1) % (GPLDA_HASH_MAX_NUM_LINES - 1)];
+  __device__ __forceinline__ i32 cipher_hash_fn(u32 key) {
+    return (c[0] * key + c[1]) % 334214459;
   }
 
-  __device__ __forceinline__ i32 rev_hash_fn_idx(u32 key, u32 slot) {
+  __device__ __forceinline__ i32 cipher_fn(i32 slot, i32 fn_idx) {
+    return fn_idx == 0 ? slot : slot ^ cipher_hash_fn(fn_idx - 1);
+  }
+
+  __device__ __forceinline__ i32 cipher_fn_idx(i32 key, u32 slot) {
     #pragma unroll
     for(i32 i = 0; i < GPLDA_HASH_MAX_NUM_LINES; ++i) {
-      if(rev_hash_fn(key, i) == slot) {
+      if(cipher_fn(i, key) == slot) {
         return i;
       }
     }
@@ -169,7 +165,7 @@ struct HashMap {
     #pragma unroll
     for(i32 i = 0; i < GPLDA_HASH_MAX_NUM_LINES; ++i) {
       // compute slot and retrieve entry
-      i32 slot = rev_hash_fn(initial_slot, i);
+      i32 slot = cipher_fn(initial_slot, i);
       HashMapEntry entry = data[slot + half_lane_idx];
 
       // check if we found the key
@@ -179,7 +175,7 @@ struct HashMap {
       }
 
       // check if Robin Hood guarantee indicates no key is present
-      u32 no_key = __ballot(entry.key == GPLDA_HASH_EMPTY || rev_hash_fn_idx(entry.key, slot) > i) & half_lane_mask;
+      u32 no_key = __ballot(entry.key == GPLDA_HASH_EMPTY || cipher_fn_idx(entry.key, slot) > i) & half_lane_mask;
       if(no_key != 0) {
         return 0;
       }
@@ -204,10 +200,10 @@ struct HashMap {
 
     // insert key into buffer
     if(half_lane_idx == 0) {
-      i32 buffer_slot = (ring_buffer_start + half_warp_idx) % GPLDA_HASH_LINE_SIZE;
-      buffer[buffer_slot] = halfwarp_entry;
+      i32 buffer_idx = (ring_buffer_start + half_warp_idx) % GPLDA_HASH_LINE_SIZE;
+      buffer[buffer_idx] = halfwarp_entry;
       halfwarp_entry.backpointer_hash = 1; // buffer
-      halfwarp_entry.backpointer_slot = buffer_slot;
+      halfwarp_entry.backpointer_idx = buffer_idx;
     }
 
     // forward pass: find empty value, accumulate key if present
@@ -216,14 +212,14 @@ struct HashMap {
     i32 done = false;
     for(i32 i = 0; i < 7 * (32 - __clz(size)); ++i) { // fast log base 2
       // compute slot and retrieve entry
-      i32 slot = rev_hash_fn(initial_slot, slot_idx);
+      i32 slot = cipher_fn(initial_slot, slot_idx);
       HashMapEntry thread_entry = data[slot + half_lane_idx];
 
       // assuming Robin Hood guarantees have not kicked in yet, check if we found the key
       if(halfwarp_entry.backpointer_hash == 1) {
         if(thread_entry.key == key) {
           // key found: set relocate intention, accumulate, clear buffer, and exit if successful
-          buffer[halfwarp_entry.backpointer_slot].relocate = true;
+          buffer[halfwarp_entry.backpointer_idx].relocate = true;
           HashMapEntry replacement = thread_entry;
           replacement.value += diff;
           // perform CAS, retrying if necessary
@@ -231,12 +227,12 @@ struct HashMap {
             HashMapEntry old = HashMapEntry(atomicCAS(&data[slot + half_lane_idx].int_repr, thread_entry.int_repr, replacement.int_repr));
             if(old.int_repr == thread_entry.int_repr) {
               // update was successful: clear buffer
-              buffer[halfwarp_entry.backpointer_slot] = HashMapEntry(0,0,0,GPLDA_HASH_EMPTY,0);
+              buffer[halfwarp_entry.backpointer_idx] = HashMapEntry(0,0,0,GPLDA_HASH_EMPTY,0);
               done = true;
               break;
-            } else if(old.key != thread_entry.key){
+            } else if(old.key != thread_entry.key) {
               // key and value changed: remove relocate intention
-              buffer[halfwarp_entry.backpointer_slot].relocate = false;
+              buffer[halfwarp_entry.backpointer_idx].relocate = false;
               break;
             }
             // else value changed but key didn't: try another CAS
@@ -250,9 +246,14 @@ struct HashMap {
       // key is not present: see if we can take some other key's slot
       i32 thread_entry_initial_slot;
       if(thread_entry.backpointer_hash == 0) {
-        thread_entry_initial_slot = rev_hash_fn_idx(thread_entry.key, slot);
+        // no backpointer: reverse current entry's hash function
+        thread_entry_initial_slot = cipher_fn_idx(thread_entry.key, slot);
       } else {
-        ;
+        // follow backpointer, then reverse the hash function
+        HashMapEntry thread_backpointer_entry = thread_entry.backpointer_hash == 1 ?
+            buffer[thread_entry.backpointer_idx] : // backpointer points to buffer
+            data[cipher_fn(slot, thread_entry.backpointer_hash) + thread_entry.backpointer_idx]; // backpointer points to table
+        thread_entry_initial_slot = cipher_fn_idx(thread_backpointer_entry.key, slot);
       }
 
       // increment slot index
