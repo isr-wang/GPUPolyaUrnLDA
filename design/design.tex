@@ -352,5 +352,30 @@ Get2
 
 Accumulate2
 
+\subsection{Push-based Lockfree Robin Hood Hashing}
+
+Auxillary bit field info
+\begin{itemize}
+\item Pointer Indicator: 1
+\item Relocation Indicator: 1
+\item Up/down Indicator: 1
+\item Buffer Index: 5
+\end{itemize}
+
+Insertion
+\begin{enumerate}
+\item Insert element into buffer, find first evicted slot, add to eviction queue
+\item Add evicted element to buffer
+\item Search for next slot
+\begin{itemize}
+\item If found previously evicted element, clear buffer and skip to 4
+\item If found possible slot, place it there, setting up/down indicator to up. Only 1 thread will succeed.
+\end{itemize}
+\item Set relocation bit on evicted element in new slot
+\item Remove up/down indicator on evicted element's old slot
+\item Set relocation bit and up/down indicator to down on buffer element that will go in its place
+\item Move element into place, removing relocation bit and up/down bit
+\end{enumerate}
+
 
 \end{document}
