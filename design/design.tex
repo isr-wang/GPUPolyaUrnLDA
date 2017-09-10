@@ -363,19 +363,21 @@ Auxillary bit field info
 \end{itemize}
 
 Insertion
-\begin{enumerate}
-\item Insert element into buffer, find first evicted slot, add to eviction queue
-\item Add evicted element to buffer
-\item Search for next slot
 \begin{itemize}
-\item If found previously evicted element, clear buffer and skip to 4
-\item If found possible slot, place it there, setting up/down indicator to up. Only 1 thread will succeed.
-\end{itemize}
-\item Set relocation bit on evicted element in new slot
-\item Remove up/down indicator on evicted element's old slot
-\item Set relocation bit and up/down indicator to down on buffer element that will go in its place
-\item Move element into place, removing relocation bit and up/down bit
+\item Insert element into the linked queue where it needs to go
+\begin{enumerate}
+\item Acquire an empty slot from the ring buffer, and place the element into it
+\item Use CAS to insert into target slot's queue
 \end{enumerate}
+\item Resolve the linked queue
+\begin{enumerate}
+\item Set the relocation bit on the bottom element in the old queue
+\item Find the element's new slot. If non-empty, acquire a slot from the ring buffer and place the element there, accumulating it if necessary
+\item Use CAS to insert into the new queue. Only 1 thread will succeed. If failed, clear and return ring buffer slot.
+\item Set the relocation bit on the first non-table element in the old queue
+\item Use CAS to move the element to the bottom of the queue
+\end{enumerate}
+\end{itemize}
 
 
 \end{document}
