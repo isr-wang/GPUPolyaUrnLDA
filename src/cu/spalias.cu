@@ -34,8 +34,8 @@ __device__ __forceinline__ void warp_queue_pair_push(i32 value, i32 conditional,
   i32 warp_num_q1 = __popc(warp_q1_bits);
   i32 warp_num_q2 = __popc(warp_q2_bits);
   // increment the queue's size, only once per warp, then broadcast to all lanes in the warp
-  i32 warp_q1_start;
-  i32 warp_q2_start;
+  u32 warp_q1_start;
+  u32 warp_q2_start;
   if(threadIdx.x % warpSize == 0) {
     warp_q1_start = atomicAdd(q1_write_end, warp_num_q1);
     warp_q2_start = atomicAdd(q2_write_end, warp_num_q2);
@@ -55,7 +55,7 @@ __device__ __forceinline__ void warp_queue_pair_push(i32 value, i32 conditional,
   // write elements to both queues
   thread_write_queue[queue_wraparound(thread_write_idx,queue_size)] = value;
   // increment the number of elements that may be read from the queue
-  if(threadIdx.x % 32 == 0) {
+  if(threadIdx.x % warpSize == 0) {
     // need to do a CAS, otherwise another thread may increment before writing is finished
     do {} while(atomicCAS(q1_read_end, warp_q1_start, warp_q1_start + warp_num_q1) != warp_q1_start);
     do {} while(atomicCAS(q2_read_end, warp_q2_start, warp_q2_start + warp_num_q2) != warp_q2_start);
