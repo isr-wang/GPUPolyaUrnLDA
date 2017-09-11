@@ -27,34 +27,118 @@ union HashMapEntry {
 
 static_assert(sizeof(HashMapEntry) == sizeof(u64), "#pragma pack(1) failed in HashMapEntry");
 
-struct HashMapEntryRingBuffer {
-    u32 start;
-    u32 read_end;
-    u32 write_end;
-    HashMapEntry* buffer;
-
-    __device__ __forceinline__ void push2(HashMapEntry* x, i32 conditional) {
-
-    }
-
-    __device__ __forceinline__ HashMapEntry* pop2(i32 conditional) {
-      return 0;
-    }
-};
-
 template<SynchronizationType sync_type>
 struct HashMap {
   u32 size;
   u32 max_size;
   HashMapEntry* data;
   HashMapEntry* temp_data;
-  HashMapEntry* buffer;
   u32 a;
   u32 b;
   u32 c;
   u32 d;
   u32 needs_rebuild;
   curandStatePhilox4_32_10_t* rng;
+  u32 ring_buffer_start;
+  u32 ring_buffer_read_end;
+  u32 ring_buffer_write_end;
+  u32 ring_buffer_size;
+  u32* ring_buffer_queue;
+  HashMapEntry* ring_buffer;
+
+
+
+
+  __device__ __forceinline__ void sync() {
+    if(sync_type == block) {
+      __syncthreads();
+    }
+  }
+
+
+
+
+
+  __device__ __forceinline__ void ring_buffer_push(u32 element) {
+    // determine constants
+    u32 lane_idx = threadIdx.x % warpSize;
+
+    // divergent threads may enter, so determine which thread will write
+    u32 active_threads = __ballot(true);
+    u32 leader = __ffs(active_threads) - 1;
+    u32 warp_num_threads = __popc(active_threads);
+    u32 offset = __popc((~(0xffffffff << lane_idx)) & active_threads);
+
+    // increment queue size once per warp and broadcast to all lanes
+    u32 warp_start;
+    if(lane_idx == leader) {
+      warp_start = atomicAdd(&ring_buffer_write_end, warp_num_threads);
+    }
+    warp_start = __shfl(warp_start, leader);
+
+    // write elements to queue
+    ring_buffer_queue[(warp_start + offset) % size] = element;
+
+    // increment number of elements that may be read from queue
+    if(lane_idx == leader) {
+      do {} while(atomicCAS(&ring_buffer_read_end, warp_start, warp_start + warp_num_threads));
+    }
+  }
+
+  __device__ __forceinline__ u32 ring_buffer_pop() {
+    // determine constants
+    u32 lane_idx = threadIdx.x % warpSize;
+
+    // divergent threads may enter, so determine which thread will write
+    u32 active_threads = __ballot(true);
+    u32 leader = __ffs(active_threads) - 1;
+    u32 warp_num_threads = __popc(active_threads);
+    u32 offset = __popc((~(0xffffffff << lane_idx)) & active_threads);
+
+    // read index from queue and broadcast
+    u32 warp_start;
+    if(lane_idx == leader) {
+      warp_start = atomicAdd(&ring_buffer_start, warp_num_threads);
+    }
+    warp_start = __shfl(warp_start, leader);
+
+    // return index of buffer location
+    return warp_start + offset;
+  }
+
+  __device__ __forceinline__ void ring_buffer_init(HashMapEntry* b, u32* q, u32 s) {
+    // calculate initialization variables common for all threads
+    i32 dim = (sync_type == block) ? blockDim.x : warpSize;
+    i32 thread_idx = threadIdx.x % dim;
+
+    if(thread_idx == 0) {
+      ring_buffer_start = 0;
+      ring_buffer_read_end = 0;
+      ring_buffer_write_end = 0;
+      ring_buffer_size = s;
+      ring_buffer_queue = q;
+      ring_buffer = b;
+    }
+
+    // ensure parameter writes are visible to all threads
+    sync();
+
+    // set map to empty
+    for(i32 offset = 0; offset < ring_buffer_size / dim + 1; ++offset) {
+      i32 i = offset * dim + thread_idx;
+      if(i < ring_buffer_size) {
+        ring_buffer_queue[i] = i;
+        ring_buffer[i] = entry(false,GPLDA_HASH_NULL_POINTER,GPLDA_HASH_EMPTY,0);
+      }
+    }
+
+    // ensure queue writes are visible to all threads
+    sync();
+  }
+
+
+
+
 
 
   __device__ __forceinline__ i32 hash_slot(u32 key, i32 x, i32 y) {
@@ -91,21 +175,6 @@ struct HashMap {
 
 
 
-  __device__ __forceinline__ void sync() {
-    if(sync_type == block) {
-      __syncthreads();
-    }
-  }
-
-  __device__ inline void provide_buffer(u64* in_buffer) {
-    if(threadIdx.x == 0) {
-      buffer = (HashMapEntry*) in_buffer;
-    }
-    sync();
-  }
-
-
-
 
   __device__ inline void init(void* in_data, u32 in_size, u32 in_max_size, curandStatePhilox4_32_10_t* in_rng) {
     // calculate initialization variables common for all threads
@@ -121,7 +190,6 @@ struct HashMap {
       // perform pointer arithmetic
       data = (HashMapEntry*) in_data;
       temp_data = data + max_size; // no sizeof for typed pointer arithmetic
-      buffer = temp_data + max_size; // no sizeof for typed pointer arithmetic
 
       needs_rebuild = 0;
       rng = in_rng; // make sure this->rng is set before use
@@ -139,15 +207,7 @@ struct HashMap {
     for(i32 offset = 0; offset < size / dim + 1; ++offset) {
       i32 i = offset * dim + thread_idx;
       if(i < size) {
-        data[i] = entry(0,0,GPLDA_HASH_EMPTY,0);
-      }
-    }
-
-    // set buffer to empty
-    for(i32 offset = 0; offset < GPLDA_HASH_LINE_SIZE / dim + 1; ++offset) {
-      i32 i = offset * dim + thread_idx;
-      if(i < GPLDA_HASH_LINE_SIZE) {
-        buffer[i] = entry(0,0,GPLDA_HASH_EMPTY,0);
+        data[i] = entry(false,GPLDA_HASH_NULL_POINTER,GPLDA_HASH_EMPTY,0);
       }
     }
 
@@ -280,7 +340,6 @@ struct HashMap {
     }
 
     // resolve queue
-
 
   }
 
