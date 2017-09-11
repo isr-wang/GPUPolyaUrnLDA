@@ -36,7 +36,7 @@ __device__ __forceinline__ void warp_queue_pair_push(i32 value, i32 conditional,
   // increment the queue's size, only once per warp, then broadcast to all lanes in the warp
   i32 warp_q1_start;
   i32 warp_q2_start;
-  if(threadIdx.x % 32 == 0) {
+  if(threadIdx.x % warpSize == 0) {
     warp_q1_start = atomicAdd(q1_write_end, warp_num_q1);
     warp_q2_start = atomicAdd(q2_write_end, warp_num_q2);
   }
