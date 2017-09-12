@@ -10,7 +10,7 @@
 #define GPLDA_HASH_EMPTY 0xfffff // 20 bits
 #define GPLDA_HASH_LINE_SIZE 16
 #define GPLDA_HASH_MAX_NUM_LINES 4
-#define GPLDA_HASH_NULL_POINTER 0x7f
+#define GPLDA_HASH_NULL_POINTER 0x7f // 7 bits
 
 namespace gplda {
 
@@ -123,7 +123,7 @@ struct HashMap {
     // ensure parameter writes are visible to all threads
     sync();
 
-    // set map to empty
+    // set buffer to empty and queue to full
     for(i32 offset = 0; offset < ring_buffer_size / dim + 1; ++offset) {
       i32 i = offset * dim + thread_idx;
       if(i < ring_buffer_size) {
@@ -236,25 +236,27 @@ struct HashMap {
     // check table
     i32 initial_slot = hash_slot(key,a,b);
     i32 stride = hash_slot(key,c,d);
-    #pragma unroll
     for(i32 i = 0; i < GPLDA_HASH_MAX_NUM_LINES; ++i) {
       // compute slot and retrieve entry
       i32 slot = (initial_slot + i * stride) % size;
       HashMapEntry entry = data[slot + half_lane_idx];
 
-      // check if we found the key
-      u32 found = __ballot(entry.key == key) & half_lane_mask;
-      if(found != 0) {
-        return __shfl(entry.value, __ffs(found), warpSize/2);
-      }
+      // check if we found the key, following pointers if necessary
+      u32 key_found;
+      u32 key_pointer;
+      do {
+        // check if we found key, return its value if so
+        key_found = __ballot(entry.key == key) & half_lane_mask;
+        if(key_found != 0) {
+          return __shfl(entry.value, __ffs(key_found), warpSize/2);
+        }
 
-      // check if there are pointers
-      u32 pointer = __ballot(entry.pointer != GPLDA_HASH_NULL_POINTER) & half_lane_mask;
-      if(pointer != 0) {
-        // TODO: follow pointers
-        u32 ptr_found;
-        return __shfl(entry.value, __ffs(ptr_found), warpSize/2);
-      }
+        // check if we found pointer, get its entry if so
+        key_pointer = __ballot(entry.pointer != GPLDA_HASH_NULL_POINTER) & half_lane_mask;
+        if(key_pointer != 0) {
+          entry = ring_buffer[entry.pointer];
+        }
+      } while(key_pointer != 0);
 
       // check if Robin Hood guarantee indicates no key is present
       u32 no_key = __ballot(entry.key == GPLDA_HASH_EMPTY || key_distance(entry.key, slot) > i) & half_lane_mask;
@@ -280,17 +282,17 @@ struct HashMap {
     // insert key into linked queue
     i32 initial_slot = hash_slot(key,a,b);
     i32 stride = hash_slot(key,c,d);
-    #pragma unroll
     for(i32 i = 0; i < GPLDA_HASH_MAX_NUM_LINES; ++i) {
       // compute slot
       i32 slot = (initial_slot + i * stride) % size;
 
       // try to insert, retrying if race condition indicates it is necessary
-      i32 retry;
+      u32 retry;
+      u32 half_warp_write;
       do {
         // retrieve entry for current half lane, set constants
         HashMapEntry thread_entry = data[slot + half_lane_idx];
-        retry = false;
+        retry = 0;
 
         // determine whether we found the key, an empty slot, or no key is present
         u32 thread_found_key = thread_entry.key == key;
@@ -298,12 +300,13 @@ struct HashMap {
         u32 thread_no_key = key_distance(thread_entry.key, slot) > i;
 
         // determine which thread should write
-        u32 half_warp_write = __ballot(thread_found_key | thread_found_empty | thread_no_key) & half_lane_mask;
-        u32 lane_write_idx = __ffs(half_warp_write) - 1;
+        half_warp_write = __ballot(thread_found_key | thread_found_empty | thread_no_key) & half_lane_mask;
+        u32 lane_write_idx = __ffs(half_warp_write) - 1; // __ffs uses 1-based indexing
 
-        if(lane_idx == lane_write_idx) { // __ffs uses 1-based indexing
+        if(lane_idx == lane_write_idx) {
           // prepare new entry for table
           HashMapEntry new_entry;
+          u32 buffer_idx = GPLDA_HASH_NULL_POINTER;
 
           // determine what kind of new entry we have
           if(thread_found_key == true) {
@@ -314,11 +317,13 @@ struct HashMap {
             // empty slot found: insert value
             HashMapEntry new_entry = entry(0,0,key,diff);
           } else if(thread_no_key == true) {
-            // TODO: Robin Hood guarantee indicates no key present: insert into eviction queue
-            u32 new_pointer;
+            // Robin Hood guarantee indicates no key present: insert into eviction queue
+            buffer_idx = ring_buffer_pop();
+            ring_buffer[buffer_idx] = entry(false, GPLDA_HASH_NULL_POINTER, key, diff);
+
             // prepare new entry
             new_entry = entry(thread_entry.int_repr);
-            new_entry.pointer = new_pointer;
+            new_entry.pointer = buffer_idx;
           }
 
           // swap new and old entry
@@ -329,14 +334,22 @@ struct HashMap {
             // set retry indicator
             retry = true;
 
-            // TODO: clear buffer, if it was requested
-
+            // clear buffer, if it was requested
+            if(buffer_idx != GPLDA_HASH_NULL_POINTER) {
+              ring_buffer[buffer_idx] = entry(false, GPLDA_HASH_NULL_POINTER, GPLDA_HASH_EMPTY, 0);
+              ring_buffer_push(buffer_idx);
+            }
           }
         }
 
         // ensure retry, if necessary, is performed on entire half warp
         retry = __ballot(retry) & half_lane_mask;
-      } while(retry != false);
+      } while(retry != 0);
+
+      // if half warp successfully performed a write, exit the loop
+      if(half_warp_write != 0) {
+        break;
+      }
     }
 
     // resolve queue
