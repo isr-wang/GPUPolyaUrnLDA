@@ -269,17 +269,19 @@ struct HashMap {
     return 0;
   }
 
-  __device__ inline void try_accumulate2(u32 key, i32 diff) {
+  __device__ inline HashMapEntry try_accumulate2(u32 key, i32 diff) {
     // determine half warp indices
     i32 lane_idx = threadIdx.x % warpSize;
     i32 half_lane_idx = threadIdx.x % (warpSize / 2);
     u32 half_lane_mask = 0x0000ffff << (((threadIdx.x % warpSize) / 16) * 4); // 4 if lane >= 16, 0 otherwise
 
     // build entry to be inserted and shuffle to entire half warp
-    HashMapEntry halfwarp_entry = entry(0,0,key,diff);
+    HashMapEntry halfwarp_entry = entry(false,GPLDA_HASH_NULL_POINTER,key,diff);
     halfwarp_entry.int_repr = __shfl(halfwarp_entry.int_repr, 0, warpSize/2);
 
     // insert key into linked queue
+    HashMapEntry thread_table_entry;
+    u32 half_warp_write;
     i32 initial_slot = hash_slot(key,a,b);
     i32 stride = hash_slot(key,c,d);
     for(i32 i = 0; i < GPLDA_HASH_MAX_NUM_LINES; ++i) {
@@ -288,16 +290,15 @@ struct HashMap {
 
       // try to insert, retrying if race condition indicates it is necessary
       u32 retry;
-      u32 half_warp_write;
       do {
         // retrieve entry for current half lane, set constants
-        HashMapEntry thread_entry = data[slot + half_lane_idx];
+        thread_table_entry = data[slot + half_lane_idx];
         retry = 0;
 
         // determine whether we found the key, an empty slot, or no key is present
-        u32 thread_found_key = thread_entry.key == key;
-        u32 thread_found_empty = thread_entry.key == GPLDA_HASH_EMPTY;
-        u32 thread_no_key = key_distance(thread_entry.key, slot) > i;
+        u32 thread_found_key = thread_table_entry.key == key;
+        u32 thread_found_empty = thread_table_entry.key == GPLDA_HASH_EMPTY;
+        u32 thread_no_key = key_distance(thread_table_entry.key, slot) > i;
 
         // determine which thread should write
         half_warp_write = __ballot(thread_found_key | thread_found_empty | thread_no_key) & half_lane_mask;
@@ -305,32 +306,26 @@ struct HashMap {
 
         if(lane_idx == lane_write_idx) {
           // prepare new entry for table
-          HashMapEntry new_entry;
           u32 buffer_idx = GPLDA_HASH_NULL_POINTER;
 
           // determine what kind of new entry we have
           if(thread_found_key == true) {
             // key found: accumulate value
-            new_entry = entry(thread_entry.int_repr);
-            new_entry.value = new_entry.value + diff;
-          } else if(thread_found_empty == true) {
-            // empty slot found: insert value
-            HashMapEntry new_entry = entry(0,0,key,diff);
+            halfwarp_entry.value += thread_table_entry.value;
           } else if(thread_no_key == true) {
             // Robin Hood guarantee indicates no key present: insert into eviction queue
             buffer_idx = ring_buffer_pop();
-            ring_buffer[buffer_idx] = entry(false, GPLDA_HASH_NULL_POINTER, key, diff);
+            ring_buffer[buffer_idx] = halfwarp_entry;
 
             // prepare new entry
-            new_entry = entry(thread_entry.int_repr);
-            new_entry.pointer = buffer_idx;
+            halfwarp_entry.pointer = buffer_idx;
           }
 
           // swap new and old entry
-          u64 old_entry_int_repr = atomicCAS(&thread_entry.int_repr, thread_entry.int_repr, new_entry.int_repr);
+          u64 old_entry_int_repr = atomicCAS(&thread_table_entry.int_repr, thread_table_entry.int_repr, halfwarp_entry.int_repr);
 
           // make sure retrieved entry matches what was expected, so we know that CAS succeeded
-          if(old_entry_int_repr != thread_entry.int_repr) {
+          if(old_entry_int_repr != thread_table_entry.int_repr) {
             // set retry indicator
             retry = true;
 
@@ -350,6 +345,11 @@ struct HashMap {
       if(half_warp_write != 0) {
         break;
       }
+    }
+
+    // check to make sure insertion succeeded: if it failed, return
+    if(half_warp_write == 0) {
+      return thread_table_entry;
     }
 
     // resolve queue
