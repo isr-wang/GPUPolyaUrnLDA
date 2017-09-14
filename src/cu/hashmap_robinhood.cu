@@ -281,11 +281,11 @@ struct HashMap {
 
     // insert key into linked queue
     HashMapEntry thread_table_entry;
-    i32 initial_slot = hash_slot(key,a,b);
+    i32 slot = hash_slot(key,a,b);
     i32 stride = hash_slot(key,c,d);
     for(i32 i = 0; i < GPLDA_HASH_MAX_NUM_LINES; ++i) {
       // compute slot
-      i32 slot = (initial_slot + i * stride) % size;
+      slot = (slot + stride) % size;
 
       // try to insert, retrying if race condition indicates it is necessary
       u32 retry;
@@ -372,12 +372,47 @@ struct HashMap {
     }
 
     // resolve queue
+    u32 finished;
+    do {
+      // find element to be resolved
+      thread_table_entry = data[slot + half_lane_idx];
+      finished = false;
 
+      u32 half_warp_relocation = __ballot(thread_table_entry.relocate != 0) & half_lane_mask;
+      u32 half_warp_pointer = __ballot(thread_table_entry.pointer != GPLDA_HASH_NULL_POINTER) & half_lane_mask;
+      if(half_warp_relocation != 0) {
+        // resolve relocation bit on thread that found it
+        if(lane_idx == __ffs(half_warp_relocation) - 1) {
+          HashMapEntry thread_link_entry = ring_buffer[thread_table_entry.pointer];
+          if(thread_link_entry.relocate == 1) {
+            // TODO: first linked element has a relocation bit: move it
+
+          } else {
+            // TODO: find slot relocated element is supposed to go in
+
+          }
+        }
+      } else if(half_warp_pointer != 0){
+        // resolve pointer on first thread that found it
+        if(lane_idx == __ffs(half_warp_pointer) - 1) {
+          // TODO: set relocation bit
+        }
+      } else {
+        // no relocation bit or pointer present, so we must have either inserted to an empty slot or accumulated existing element
+        finished = true;
+      }
+
+      // ensure entire half warp finishes
+      finished = __ballot(finished) & half_lane_mask;
+    } while(finished == 0);
+
+    // return empty element indicating success
+    return entry(false, GPLDA_HASH_NULL_POINTER, GPLDA_HASH_EMPTY, 0);
   }
 
   __device__ __forceinline__ void accumulate2(u32 key, i32 diff) {
     // try to accumulate
-    try_accumulate2(key, diff);
+    HashMapEntry failed_insertion = try_accumulate2(key, diff);
 
     // rebuild if too large
     sync();
