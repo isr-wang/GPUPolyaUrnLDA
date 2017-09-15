@@ -381,21 +381,34 @@ struct HashMap {
       u32 half_warp_relocation = __ballot(thread_table_entry.relocate != 0) & half_lane_mask;
       u32 half_warp_pointer = __ballot(thread_table_entry.pointer != GPLDA_HASH_NULL_POINTER) & half_lane_mask;
       if(half_warp_relocation != 0) {
-        // resolve relocation bit on thread that found it
-        if(lane_idx == __ffs(half_warp_relocation) - 1) {
-          HashMapEntry thread_link_entry = ring_buffer[thread_table_entry.pointer];
-          if(thread_link_entry.relocate == 1) {
-            // TODO: first linked element has a relocation bit: move it
+        // resolve relocation bit: first, broadcast entry to entire halfwarp
+        HashMapEntry half_warp_link_entry;
+        u32 lane_link_entry_idx = __ffs(half_warp_relocation) - 1;
+        if(lane_idx == lane_link_entry_idx) {
+          half_warp_link_entry = ring_buffer[thread_table_entry.pointer];
+        }
+        half_warp_link_entry.int_repr = __shfl(half_warp_link_entry.int_repr, lane_link_entry_idx % (warpSize/2), warpSize/2);
 
-          } else {
-            // TODO: find slot relocated element is supposed to go in
-
+        // figure out whether linked element should take thread's slot, or whether thread's slot needs to be moved
+        if(half_warp_link_entry.relocate == 1) {
+          // first linked element has a relocation bit: move it
+          if(lane_idx == lane_link_entry_idx) {
+            // no need to check for success: whether we succeed or fail, try again and keep going
+            atomicCAS(&thread_table_entry.int_repr, thread_table_entry.int_repr, half_warp_link_entry.int_repr);
           }
+        } else {
+          // TODO: find slot relocated element is supposed to go in
+
         }
       } else if(half_warp_pointer != 0){
-        // resolve pointer on first thread that found it
+        // we have pointers, but no relocation bit: resolve pointer on first thread that found it
         if(lane_idx == __ffs(half_warp_pointer) - 1) {
-          // TODO: set relocation bit
+          // set relocation bit
+          HashMapEntry thread_new_entry = thread_table_entry;
+          thread_new_entry.relocate = 1;
+
+          // no need to check for success: whether we succeed or fail, try again and keep going
+          atomicCAS(&thread_table_entry.int_repr, thread_table_entry.int_repr, thread_new_entry.int_repr);
         }
       } else {
         // no relocation bit or pointer present, so we must have either inserted to an empty slot or accumulated existing element
