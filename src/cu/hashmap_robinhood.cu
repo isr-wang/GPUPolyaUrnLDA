@@ -433,7 +433,7 @@ struct HashMap {
             }
 
             // assuming slot is full, check pointers to see if element is there
-            u32 found ;
+            u32 found;
             u32 pointer;
             do {
               // if element is found, set relocation bit on its first link
@@ -464,7 +464,19 @@ struct HashMap {
             // after pointers have been exhausted, check if element should be evicted, and insert into queue
             u32 evict = __ballot(key_distance(thread_table_insert_entry.key, insert_slot) < i) & half_lane_mask;
             if(evict != 0 && lane_idx == __ffs(evict) - 1) {
-              // TODO: grab slot from ring buffer
+              // grab slot from ring buffer
+              u32 buffer_idx = ring_buffer_pop();
+              ring_buffer[buffer_idx] = half_warp_table_entry;
+
+              // prepare entry for insertion
+              HashMapEntry thread_table_insert_entry_with_pointer = thread_table_insert_entry;
+              thread_table_insert_entry_with_pointer.pointer = buffer_idx;
+
+              // insert entry, returning value to ring buffer if insert failed
+              u64 old_entry_int_repr = atomicCAS(&thread_table_insert_entry.int_repr, thread_table_insert_entry.int_repr, thread_table_insert_entry_with_pointer.int_repr);
+              if(old_entry_int_repr != thread_table_insert_entry.int_repr) {
+                ring_buffer_push(buffer_idx);
+              }
             }
 
             // exit if we evicted
@@ -503,7 +515,7 @@ struct HashMap {
 
   __device__ __forceinline__ void accumulate2(u32 key, i32 diff) {
     // try to accumulate
-    i32 failed_insertion = try_accumulate2(key, diff);
+    i32 success = try_accumulate2(key, diff);
 
     // rebuild if too large
     sync();
