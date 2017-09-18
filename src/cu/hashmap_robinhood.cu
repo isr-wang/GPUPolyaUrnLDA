@@ -259,7 +259,7 @@ struct HashMap {
       } while(key_pointer != 0);
 
       // check if Robin Hood guarantee indicates no key is present
-      u32 no_key = __ballot(entry.key == GPLDA_HASH_EMPTY || key_distance(entry.key, slot) > i) & half_lane_mask;
+      u32 no_key = __ballot(entry.key == GPLDA_HASH_EMPTY || key_distance(entry.key, slot) < i) & half_lane_mask;
       if(no_key != 0) {
         return 0;
       }
@@ -269,7 +269,11 @@ struct HashMap {
     return 0;
   }
 
-  __device__ inline HashMapEntry try_accumulate2(u32 key, i32 diff) {
+
+
+
+
+  __device__ inline i32 try_accumulate2(u32 key, i32 diff) {
     // determine half warp indices
     i32 lane_idx = threadIdx.x % warpSize;
     i32 half_lane_idx = threadIdx.x % (warpSize / 2);
@@ -366,10 +370,16 @@ struct HashMap {
       }
     }
 
+
+
+
     // check to make sure insertion succeeded: if it failed, return
     if(half_warp_entry.int_repr != entry(false, GPLDA_HASH_NULL_POINTER, GPLDA_HASH_EMPTY, 0).int_repr) {
-      return thread_table_entry;
+      return false;
     }
+
+
+
 
     // resolve queue
     u32 finished;
@@ -381,7 +391,7 @@ struct HashMap {
       u32 half_warp_relocation = __ballot(thread_table_entry.relocate != 0) & half_lane_mask;
       u32 half_warp_pointer = __ballot(thread_table_entry.pointer != GPLDA_HASH_NULL_POINTER) & half_lane_mask;
       if(half_warp_relocation != 0) {
-        // resolve relocation bit: first, broadcast entry to entire halfwarp
+        // resolve relocation bit: first, broadcast entry to entire half warp
         HashMapEntry half_warp_link_entry;
         u32 lane_link_entry_idx = __ffs(half_warp_relocation) - 1;
         if(lane_idx == lane_link_entry_idx) {
@@ -397,8 +407,76 @@ struct HashMap {
             atomicCAS(&thread_table_entry.int_repr, thread_table_entry.int_repr, half_warp_link_entry.int_repr);
           }
         } else {
-          // TODO: find slot relocated element is supposed to go in
+          // element has relocation bit, but its first linked element doesn't: find slot relocated element is supposed to go in
+          HashMapEntry half_warp_table_entry;
+          half_warp_table_entry.int_repr = __shfl(thread_table_entry.int_repr, lane_link_entry_idx % (warpSize/2), warpSize/2);
 
+          // find slot relocated element is supposed to go into
+          i32 insert_stride = hash_slot(half_warp_table_entry.key,c,d);
+          for(i32 i = 0; i < GPLDA_HASH_MAX_NUM_LINES; ++i) {
+            i32 insert_slot = (slot + i * insert_stride) % size;
+            HashMapEntry thread_table_insert_entry = data[insert_slot + half_lane_idx];
+
+            // check first if slot contains an empty element: if so, insert the element there - no need to check pointers because they must be null
+            u32 slot_empty = __ballot(thread_table_insert_entry.key == GPLDA_HASH_EMPTY) & half_lane_mask;
+            if(slot_empty != 0) {
+              i32 slot_empty_lane_idx = __ffs(slot_empty) - 1;
+              if(lane_idx == slot_empty_lane_idx) {
+                u64 old_entry_int_repr = atomicCAS(&thread_table_insert_entry.int_repr, thread_table_insert_entry.int_repr, thread_table_entry.int_repr);
+                if(old_entry_int_repr == entry(false, GPLDA_HASH_NULL_POINTER, GPLDA_HASH_EMPTY, 0).int_repr) {
+                  slot = insert_slot;
+                }
+              }
+              // ensure entire half warp knows the new slot value, if it changed
+              slot = __shfl(slot, slot_empty_lane_idx % (warpSize/2), warpSize/2);
+              break;
+            }
+
+            // assuming slot is full, check pointers to see if element is there
+            u32 found ;
+            u32 pointer;
+            do {
+              // if element is found, set relocation bit on its first link
+              found = false;
+              if(thread_table_insert_entry.int_repr == half_warp_table_entry.int_repr) {
+                found = true;
+                HashMapEntry half_warp_link_entry_with_relocate = half_warp_link_entry;
+                half_warp_link_entry_with_relocate.relocate = 1;
+                // no need to check for success: whether we succeed or fail, try again and keep going
+                atomicCAS(&half_warp_link_entry.int_repr, half_warp_link_entry.int_repr, half_warp_link_entry_with_relocate.int_repr);
+              }
+              found = __ballot(found == true) & half_lane_mask;
+
+              // if pointers are present, follow them and check again
+              pointer = false;
+              if(found == 0 && thread_table_insert_entry.pointer != GPLDA_HASH_NULL_POINTER) {
+                pointer = true;
+                thread_table_insert_entry = ring_buffer[thread_table_insert_entry.pointer];
+              }
+              pointer = __ballot(pointer == true) & half_lane_mask;
+            } while(found == 0 && pointer != 0);
+
+            // exit if we found an element
+            if(found != 0) {
+              break;
+            }
+
+            // after pointers have been exhausted, check if element should be evicted, and insert into queue
+            u32 evict = __ballot(key_distance(thread_table_insert_entry.key, insert_slot) < i) & half_lane_mask;
+            if(evict != 0 && lane_idx == __ffs(evict) - 1) {
+              // TODO: grab slot from ring buffer
+            }
+
+            // exit if we evicted
+            if(evict != 0) {
+              break;
+            }
+
+            // if we're at the last iteration and haven't exited the loop yet, return indicating failure
+            if(i == GPLDA_HASH_MAX_NUM_LINES - 1) {
+              return false;
+            }
+          }
         }
       } else if(half_warp_pointer != 0){
         // we have pointers, but no relocation bit: resolve pointer on first thread that found it
@@ -419,13 +497,13 @@ struct HashMap {
       finished = __ballot(finished) & half_lane_mask;
     } while(finished == 0);
 
-    // return empty element indicating success
-    return entry(false, GPLDA_HASH_NULL_POINTER, GPLDA_HASH_EMPTY, 0);
+    // return empty element indicating success, or element that exceeded its maximum number of lines indicating failure
+    return true;
   }
 
   __device__ __forceinline__ void accumulate2(u32 key, i32 diff) {
     // try to accumulate
-    HashMapEntry failed_insertion = try_accumulate2(key, diff);
+    i32 failed_insertion = try_accumulate2(key, diff);
 
     // rebuild if too large
     sync();
