@@ -1,4 +1,4 @@
-//#pragma once
+#pragma once
 
 #include "types.cuh"
 #include "tuning.cuh"
@@ -15,7 +15,6 @@
 namespace gplda {
 
 union HashMapEntry {
-  #pragma pack(1)
   struct {
     u32 relocate: 1;
     u32 pointer: 7;
@@ -25,7 +24,8 @@ union HashMapEntry {
   u64 int_repr;
 };
 
-static_assert(sizeof(HashMapEntry) == sizeof(u64), "#pragma pack(1) failed in HashMapEntry");
+// #pragma pack is unsupported in device code, so we can't force the bit field to be correct, but we can check for correctness using sizeof, guaranteed identical on host and device
+static_assert(sizeof(HashMapEntry) == sizeof(u64), "bit field struct not properly packed in HashMapEntry");
 
 template<SynchronizationType sync_type>
 struct HashMap {

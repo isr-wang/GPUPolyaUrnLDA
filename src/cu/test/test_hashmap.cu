@@ -1,5 +1,5 @@
 #include "test_hashmap.cuh"
-#include "../hashmap.cuh"
+#include "../hashmap_robinhood.cuh"
 #include "../random.cuh"
 #include "../error.cuh"
 #include "assert.h"
@@ -21,16 +21,16 @@ __global__ void test_hash_map_init(void* map_storage, u32 max_size, curandStateP
 
 
 template<gplda::SynchronizationType sync_type, i32 rebuild>
-__global__ void test_hash_map_insert(void* map_storage, u32 num_elements, u32 max_size, u32* out, curandStatePhilox4_32_10_t* rng) {
+__global__ void test_hash_map_insert2(void* map_storage, u32 num_elements, u32 max_size, u32* out, curandStatePhilox4_32_10_t* rng) {
   __shared__ gplda::HashMap<sync_type> m[1];
   m->init(map_storage, rebuild ? num_elements : max_size, max_size, rng);
-  i32 dim = (sync_type == gplda::block) ? blockDim.x : warpSize;
-  i32 thread_idx = threadIdx.x % dim;
+  i32 dim = (sync_type == gplda::block) ? blockDim.x / (warpSize / 2) : warpSize / (warpSize / 2);
+  i32 half_warp_idx = threadIdx.x / (warpSize / 2);
 
   // insert elements
   for(i32 offset = 0; offset < num_elements / dim + 1; ++offset) {
-    u32 i = offset * dim + thread_idx;
-    m->insert(i, i < num_elements ? i : 0);
+    i32 i = offset * dim + half_warp_idx;
+    m->accumulate2(i, i < num_elements ? i : 0);
   }
 
   // sync if needed
@@ -40,34 +40,24 @@ __global__ void test_hash_map_insert(void* map_storage, u32 num_elements, u32 ma
 
   // retrieve elements
   for(i32 offset = 0; offset < num_elements / dim + 1; ++offset) {
-    i32 i = offset * dim + thread_idx;
+    i32 i = offset * dim + half_warp_idx;
     if(i < num_elements) {
-      out[i] = m->get(i);
+      out[i] = m->get2(i);
     }
   }
 }
 
 template<gplda::SynchronizationType sync_type>
-__global__ void test_hash_map_accumulate(void* map_storage, u32 num_unique_elements, u32 num_elements, u32 max_size, u32* out, curandStatePhilox4_32_10_t* rng) {
+__global__ void test_hash_map_accumulate2(void* map_storage, u32 num_unique_elements, u32 num_elements, u32 max_size, u32* out, curandStatePhilox4_32_10_t* rng) {
   __shared__ gplda::HashMap<sync_type> m[1];
   m->init(map_storage, max_size, max_size, rng);
-  i32 dim = (sync_type == gplda::block) ? blockDim.x : warpSize;
-  i32 thread_idx = threadIdx.x % dim;
+  i32 dim = (sync_type == gplda::block) ? blockDim.x / (warpSize / 2) : warpSize / (warpSize / 2);
+  i32 half_warp_idx = threadIdx.x / (warpSize / 2);
 
   // accumulate elements
   for(i32 offset = 0; offset < num_elements / dim + 1; ++offset) {
-    u32 i = offset * dim + thread_idx;
-    m->accumulate(i % num_unique_elements, i < num_elements ? 1 : 0);
-    if(i < num_elements && i % num_unique_elements == 0) printf("%d\n",i);
-  }
-
-  if(thread_idx == 0) printf("%d\n", m->get(2));
-
-  for(i32 offset = 0; offset < max_size / dim + 1; ++offset) {
-    i32 i = offset * dim + thread_idx;
-    if(i < max_size) {
-      printf("%d:%lX:::::%lX:%lX\n",i,m->data[i],&m->data[i],&m->data[i]+1);
-    }
+    u32 i = offset * dim + half_warp_idx;
+    m->accumulate2(i % num_unique_elements, i < num_elements ? 1 : 0);
   }
 
   // sync if needed
@@ -77,9 +67,9 @@ __global__ void test_hash_map_accumulate(void* map_storage, u32 num_unique_eleme
 
   // retrieve elements
   for(i32 offset = 0; offset < num_elements / dim + 1; ++offset) {
-    i32 i = offset * dim + thread_idx;
+    i32 i = offset * dim + half_warp_idx;
     if(i < num_unique_elements) {
-      out[i] = m->get(i);
+      out[i] = m->get2(i);
     }
   }
 }
@@ -128,7 +118,7 @@ void test_hash_map() {
   }
 
   // insert<warp, no_rebuild>
-  test_hash_map_insert<gplda::warp, false><<<1,32>>>(map, num_elements, max_size, out, rng);
+  test_hash_map_insert2<gplda::warp, false><<<1,32>>>(map, num_elements, max_size, out, rng);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 
   cudaMemcpy(out_host, out, num_elements * sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
@@ -142,7 +132,7 @@ void test_hash_map() {
   }
 
   // insert<block, no_rebuild>
-  test_hash_map_insert<gplda::block, false><<<1,GPLDA_POLYA_URN_SAMPLE_BLOCKDIM>>>(map, num_elements, max_size, out, rng);
+  test_hash_map_insert2<gplda::block, false><<<1,GPLDA_POLYA_URN_SAMPLE_BLOCKDIM>>>(map, num_elements, max_size, out, rng);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 
   cudaMemcpy(out_host, out, num_elements * sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
@@ -153,7 +143,7 @@ void test_hash_map() {
   }
 
   // insert<warp, rebuild>
-  test_hash_map_insert<gplda::warp, true><<<1,32>>>(map, num_elements, max_size, out, rng);
+  test_hash_map_insert2<gplda::warp, true><<<1,32>>>(map, num_elements, max_size, out, rng);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 
   cudaMemcpy(out_host, out, num_elements * sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
@@ -164,7 +154,7 @@ void test_hash_map() {
   }
 
   // insert<block, rebuild>
-  test_hash_map_insert<gplda::block, true><<<1,GPLDA_POLYA_URN_SAMPLE_BLOCKDIM>>>(map, num_elements, max_size, out, rng);
+  test_hash_map_insert2<gplda::block, true><<<1,GPLDA_POLYA_URN_SAMPLE_BLOCKDIM>>>(map, num_elements, max_size, out, rng);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 
   cudaMemcpy(out_host, out, num_elements * sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
@@ -175,13 +165,12 @@ void test_hash_map() {
   }
 
   // accumulate<warp>
-  test_hash_map_accumulate<gplda::warp><<<1,32>>>(map, num_unique_elements, num_elements, max_size, out, rng);
+  test_hash_map_accumulate2<gplda::warp><<<1,32>>>(map, num_unique_elements, num_elements, max_size, out, rng);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 
   cudaMemcpy(out_host, out, num_elements * sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
 
   for(i32 i = 0; i < num_unique_elements; ++i) {
-    if(out_host[i] != num_elements / num_unique_elements) printf("%d:%d\n",i,out_host[i]);
     assert(out_host[i] == num_elements / num_unique_elements);
     out_host[i] = 0;
   }
