@@ -339,7 +339,7 @@ struct HashMap {
           }
 
           // swap new and old entry
-          u64 old_entry_int_repr = atomicCAS(&thread_table_entry.int_repr, thread_table_entry.int_repr, half_warp_entry.int_repr);
+          u64 old_entry_int_repr = atomicCAS(&data[slot + half_lane_idx].int_repr, thread_table_entry.int_repr, half_warp_entry.int_repr);
 
           // make sure retrieved entry matches what was expected, so we know that CAS succeeded
           if(old_entry_int_repr != thread_table_entry.int_repr) {
@@ -391,20 +391,17 @@ struct HashMap {
       u32 half_warp_relocation = __ballot(thread_table_entry.relocate != 0) & half_lane_mask;
       u32 half_warp_pointer = __ballot(thread_table_entry.pointer != GPLDA_HASH_NULL_POINTER) & half_lane_mask;
       if(half_warp_relocation != 0) {
-        // resolve relocation bit: first, broadcast entry to entire half warp
-        HashMapEntry half_warp_link_entry;
+        // resolve relocation bit: first, broadcast pointer to entire half warp, then retrieve entry
         u32 lane_link_entry_idx = __ffs(half_warp_relocation) - 1;
-        if(lane_idx == lane_link_entry_idx) {
-          half_warp_link_entry = ring_buffer[thread_table_entry.pointer];
-        }
-        half_warp_link_entry.int_repr = __shfl(half_warp_link_entry.int_repr, lane_link_entry_idx % (warpSize/2), warpSize/2);
+        u32 half_warp_link_entry_pointer = __shfl(thread_table_entry.pointer, lane_link_entry_idx % (warpSize/2), warpSize/2);
+        HashMapEntry half_warp_link_entry = ring_buffer[half_warp_link_entry_pointer];
 
         // figure out whether linked element should take thread's slot, or whether thread's slot needs to be moved
         if(half_warp_link_entry.relocate == 1) {
           // first linked element has a relocation bit: move it
           if(lane_idx == lane_link_entry_idx) {
             // no need to check for success: whether we succeed or fail, try again and keep going
-            atomicCAS(&thread_table_entry.int_repr, thread_table_entry.int_repr, half_warp_link_entry.int_repr);
+            atomicCAS(&data[slot + half_lane_idx].int_repr, thread_table_entry.int_repr, half_warp_link_entry.int_repr);
           }
         } else {
           // element has relocation bit, but its first linked element doesn't: find slot relocated element is supposed to go in
@@ -422,7 +419,7 @@ struct HashMap {
             if(slot_empty != 0) {
               i32 slot_empty_lane_idx = __ffs(slot_empty) - 1;
               if(lane_idx == slot_empty_lane_idx) {
-                u64 old_entry_int_repr = atomicCAS(&thread_table_insert_entry.int_repr, thread_table_insert_entry.int_repr, thread_table_entry.int_repr);
+                u64 old_entry_int_repr = atomicCAS(&data[insert_slot + half_lane_idx].int_repr, thread_table_insert_entry.int_repr, thread_table_entry.int_repr);
                 if(old_entry_int_repr == entry(false, GPLDA_HASH_NULL_POINTER, GPLDA_HASH_EMPTY, 0).int_repr) {
                   slot = insert_slot;
                 }
@@ -435,6 +432,7 @@ struct HashMap {
             // assuming slot is full, check pointers to see if element is there
             u32 found;
             u32 pointer;
+            HashMapEntry* address = &data[insert_slot + half_lane_idx];
             do {
               // if element is found, set relocation bit on its first link
               found = false;
@@ -443,7 +441,7 @@ struct HashMap {
                 HashMapEntry half_warp_link_entry_with_relocate = half_warp_link_entry;
                 half_warp_link_entry_with_relocate.relocate = 1;
                 // no need to check for success: whether we succeed or fail, try again and keep going
-                atomicCAS(&half_warp_link_entry.int_repr, half_warp_link_entry.int_repr, half_warp_link_entry_with_relocate.int_repr);
+                atomicCAS(&ring_buffer[half_warp_link_entry_pointer].int_repr, half_warp_link_entry.int_repr, half_warp_link_entry_with_relocate.int_repr);
               }
               found = __ballot(found == true) & half_lane_mask;
 
@@ -451,7 +449,8 @@ struct HashMap {
               pointer = false;
               if(found == 0 && thread_table_insert_entry.pointer != GPLDA_HASH_NULL_POINTER) {
                 pointer = true;
-                thread_table_insert_entry = ring_buffer[thread_table_insert_entry.pointer];
+                address = &ring_buffer[thread_table_insert_entry.pointer];
+                thread_table_insert_entry = *address;
               }
               pointer = __ballot(pointer == true) & half_lane_mask;
             } while(found == 0 && pointer != 0);
@@ -473,7 +472,7 @@ struct HashMap {
               thread_table_insert_entry_with_pointer.pointer = buffer_idx;
 
               // insert entry, returning value to ring buffer if insert failed
-              u64 old_entry_int_repr = atomicCAS(&thread_table_insert_entry.int_repr, thread_table_insert_entry.int_repr, thread_table_insert_entry_with_pointer.int_repr);
+              u64 old_entry_int_repr = atomicCAS(&address->int_repr, thread_table_insert_entry.int_repr, thread_table_insert_entry_with_pointer.int_repr);
               if(old_entry_int_repr != thread_table_insert_entry.int_repr) {
                 ring_buffer_push(buffer_idx);
               }
@@ -498,7 +497,7 @@ struct HashMap {
           thread_new_entry.relocate = 1;
 
           // no need to check for success: whether we succeed or fail, try again and keep going
-          atomicCAS(&thread_table_entry.int_repr, thread_table_entry.int_repr, thread_new_entry.int_repr);
+          atomicCAS(&data[slot + half_lane_idx].int_repr, thread_table_entry.int_repr, thread_new_entry.int_repr);
         }
       } else {
         // no relocation bit or pointer present, so we must have either inserted to an empty slot or accumulated existing element
