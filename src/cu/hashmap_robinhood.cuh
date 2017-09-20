@@ -176,7 +176,7 @@ struct HashMap {
 
 
 
-  __device__ inline void init(void* in_data, u32 in_size, u32 in_max_size, curandStatePhilox4_32_10_t* in_rng) {
+  __device__ inline void init(void* in_data, u32 in_data_size, u32 initial_size, u32 num_concurrent_elements, curandStatePhilox4_32_10_t* in_rng) {
     // calculate initialization variables common for all threads
     i32 dim = (sync_type == block) ? blockDim.x : warpSize;
     i32 thread_idx = threadIdx.x % dim;
@@ -184,8 +184,8 @@ struct HashMap {
     // set map parameters and calculate random hash functions
     if(thread_idx == 0) {
       // round down to ensure cache alignment
-      max_size = (in_max_size / GPLDA_HASH_LINE_SIZE) * GPLDA_HASH_LINE_SIZE;
-      size = min((in_size / GPLDA_HASH_LINE_SIZE + 1) * GPLDA_HASH_LINE_SIZE, in_max_size);
+      max_size = ((in_data_size/2 - 3*num_concurrent_elements) / GPLDA_HASH_LINE_SIZE) * GPLDA_HASH_LINE_SIZE;
+      size = min((initial_size / GPLDA_HASH_LINE_SIZE + 1) * GPLDA_HASH_LINE_SIZE, max_size);
 
       // perform pointer arithmetic
       data = (HashMapEntry*) in_data;
@@ -210,6 +210,8 @@ struct HashMap {
         data[i] = entry(false,GPLDA_HASH_NULL_POINTER,GPLDA_HASH_EMPTY,0);
       }
     }
+
+    ring_buffer_init(temp_data + max_size, (u32*) (temp_data + max_size + 2*num_concurrent_elements), 2*num_concurrent_elements);
 
     // synchronize to ensure initialization is complete
     sync();
