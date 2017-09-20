@@ -184,7 +184,7 @@ struct HashMap {
     // set map parameters and calculate random hash functions
     if(thread_idx == 0) {
       // round down to ensure cache alignment
-      max_size = ((in_data_size/2 - 3*num_concurrent_elements) / GPLDA_HASH_LINE_SIZE) * GPLDA_HASH_LINE_SIZE;
+      max_size = (((in_data_size - 3*num_concurrent_elements)/2) / GPLDA_HASH_LINE_SIZE) * GPLDA_HASH_LINE_SIZE;
       size = min((initial_size / GPLDA_HASH_LINE_SIZE + 1) * GPLDA_HASH_LINE_SIZE, max_size);
 
       // perform pointer arithmetic
@@ -518,11 +518,15 @@ struct HashMap {
     // try to accumulate
     i32 success = try_accumulate2(key, diff);
 
-    // rebuild if too large
-    sync();
-    if(needs_rebuild == 1) {
-      rebuild();
+    if(!success) {
+      printf("accumulate2 failed");
     }
+
+    // rebuild if too large
+//    sync();
+//    if(needs_rebuild == 1) {
+//      rebuild();
+//    }
   }
 };
 
