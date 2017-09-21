@@ -7,32 +7,17 @@
 #include <cstdio>
 #include "assert.h"
 
-#define GPLDA_HASH_EMPTY 0xfffff // 20 bits
 #define GPLDA_HASH_LINE_SIZE 16
 #define GPLDA_HASH_MAX_NUM_LINES 4
-#define GPLDA_HASH_NULL_POINTER 0x7f // 7 bits
 
 namespace gplda {
-
-union HashMapEntry {
-  struct {
-    u32 relocate: 1;
-    u32 pointer: 7;
-    u32 key: 20;
-    u64 value: 36;
-  };
-  u64 int_repr;
-};
-
-// #pragma pack is unsupported in device code, so we can't force the bit field to be correct, but we can check for correctness using sizeof, guaranteed identical on host and device
-static_assert(sizeof(HashMapEntry) == sizeof(u64), "bit field struct not properly packed in HashMapEntry");
 
 template<SynchronizationType sync_type>
 struct HashMap {
   u32 size;
   u32 max_size;
-  HashMapEntry* data;
-  HashMapEntry* temp_data;
+  u64* data;
+  u64* temp_data;
   u32 a;
   u32 b;
   u32 c;
@@ -44,7 +29,7 @@ struct HashMap {
   u32 ring_buffer_write_end;
   u32 ring_buffer_size;
   u32* ring_buffer_queue;
-  HashMapEntry* ring_buffer;
+  u64* ring_buffer;
 
 
 
@@ -53,6 +38,79 @@ struct HashMap {
     if(sync_type == block) {
       __syncthreads();
     }
+  }
+
+
+
+
+
+
+
+
+  __device__ __forceinline__ u64 bfe_b64(u64 source, u32 bit_start, u32 num_bits) {
+    u64 bits;
+    asm("bfe.u64 %0, %1, %2, %3;" : "=l"(bits) : "l"(source), "r"(bit_start), "r"(num_bits));
+    return bits;
+  }
+
+  __device__ __forceinline__ void bfi_b64(u64 &ret, u64 x, u64 y, u32 bit_start, u32 num_bits) {
+    asm("bfi.b64 %0, %1, %2, %3, %4;" : "=l"(ret) : "l"(y), "l"(x), "r"(bit_start), "r"(num_bits));
+  }
+
+  __device__ __forceinline__ u64 entry(u32 relocate, u32 pointer, u32 key, u64 value) {
+    u64 ret;
+    bfi_b64(ret, value, key, 36, 20);
+    bfi_b64(ret, ret, pointer, 56, 7);
+    bfi_b64(ret, ret, relocate, 63, 1);
+    return ret;
+  }
+
+  __device__ __forceinline__ u64 with_relocate(u32 relocate, u64 entry) {
+    bfi_b64(entry, entry, relocate, 63, 1);
+    return entry;
+  }
+
+  __device__ __forceinline__ u64 with_pointer(u32 pointer, u64 entry) {
+    bfi_b64(entry, entry, pointer, 56, 7);
+    return entry;
+  }
+
+  __device__ __forceinline__ u64 with_key(u32 key, u64 entry) {
+    bfi_b64(entry, entry, key, 36, 20);
+    return entry;
+  }
+
+  __device__ __forceinline__ u64 with_value(u64 value, u64 entry) {
+    bfi_b64(entry, entry, value, 0, 36);
+    return entry;
+  }
+
+  __device__ __forceinline__ u32 relocate(u64 entry) {
+    return bfe_b64(entry, 63, 1);
+  }
+
+  __device__ __forceinline__ u32 pointer(u64 entry) {
+    return bfe_b64(entry, 56, 7);
+  }
+
+  __device__ __forceinline__ u32 key(u64 entry) {
+    return bfe_b64(entry, 36, 20);
+  }
+
+  __device__ __forceinline__ u32 value(u64 entry) {
+    return bfe_b64(entry, 0, 36);
+  }
+
+  __device__ __forceinline__ static constexpr u32 null_pointer() {
+    return 0x7f;
+  }
+
+  __device__ __forceinline__ static constexpr u32 empty_key() {
+    return 0xfffff;
+  }
+
+  __device__ __forceinline__ static constexpr u64 empty() {
+    return (((u64) null_pointer()) << 56) | (((u64) empty_key()) << 36);
   }
 
 
@@ -106,7 +164,7 @@ struct HashMap {
     return warp_start + offset;
   }
 
-  __device__ __forceinline__ void ring_buffer_init(HashMapEntry* b, u32* q, u32 s) {
+  __device__ __forceinline__ void ring_buffer_init(u64* b, u32* q, u32 s) {
     // calculate initialization variables common for all threads
     i32 dim = (sync_type == block) ? blockDim.x : warpSize;
     i32 thread_idx = threadIdx.x % dim;
@@ -128,7 +186,7 @@ struct HashMap {
       i32 i = offset * dim + thread_idx;
       if(i < ring_buffer_size) {
         ring_buffer_queue[i] = i;
-        ring_buffer[i] = entry(false,GPLDA_HASH_NULL_POINTER,GPLDA_HASH_EMPTY,0);
+        ring_buffer[i] = empty();
       }
     }
 
@@ -158,21 +216,6 @@ struct HashMap {
   }
 
 
-  __device__ __forceinline__ HashMapEntry entry(u64 ir) {
-    HashMapEntry entry;
-    entry.int_repr = ir;
-    return entry;
-  }
-
-  __device__ __forceinline__ HashMapEntry entry(u32 r, u32 p, u32 k, u64 v) {
-    HashMapEntry entry;
-    entry.relocate = r;
-    entry.pointer = p;
-    entry.key = k;
-    entry.value = v;
-    return entry;
-  }
-
 
 
 
@@ -188,7 +231,7 @@ struct HashMap {
       size = min((initial_size / GPLDA_HASH_LINE_SIZE + 1) * GPLDA_HASH_LINE_SIZE, max_size);
 
       // perform pointer arithmetic
-      data = (HashMapEntry*) in_data;
+      data = (u64*) in_data;
       temp_data = data + max_size; // no sizeof for typed pointer arithmetic
 
       needs_rebuild = 0;
@@ -207,7 +250,7 @@ struct HashMap {
     for(i32 offset = 0; offset < size / dim + 1; ++offset) {
       i32 i = offset * dim + thread_idx;
       if(i < size) {
-        data[i] = entry(false,GPLDA_HASH_NULL_POINTER,GPLDA_HASH_EMPTY,0);
+        data[i] = empty();
       }
     }
 
@@ -229,39 +272,40 @@ struct HashMap {
 
 
 
-  __device__ inline u32 get2(u32 key) {
+  __device__ inline u32 get2(u32 half_warp_key) {
     // shuffle key to entire half-warp
-    key = __shfl(key, 0, warpSize/2);
+    half_warp_key = __shfl(half_warp_key, 0, warpSize/2);
     i32 half_lane_idx = threadIdx.x % (warpSize / 2);
     u32 half_lane_mask = 0x0000ffff << (((threadIdx.x % warpSize) / 16) * 4); // 4 if lane >= 16, 0 otherwise
 
     // check table
-    i32 initial_slot = hash_slot(key,a,b);
-    i32 stride = hash_slot(key,c,d);
+    i32 initial_slot = hash_slot(half_warp_key,a,b);
+    i32 stride = hash_slot(half_warp_key,c,d);
     for(i32 i = 0; i < GPLDA_HASH_MAX_NUM_LINES; ++i) {
       // compute slot and retrieve entry
       i32 slot = (initial_slot + i * stride) % size;
-      HashMapEntry entry = data[slot + half_lane_idx];
+      u64 entry = data[slot + half_lane_idx];
 
       // check if we found the key, following pointers if necessary
       u32 key_found;
       u32 key_pointer;
       do {
         // check if we found key, return its value if so
-        key_found = __ballot(entry.key == key) & half_lane_mask;
+        key_found = __ballot(key(entry) == half_warp_key) & half_lane_mask;
         if(key_found != 0) {
-          return __shfl(entry.value, __ffs(key_found), warpSize/2);
+          return __shfl(value(entry), __ffs(key_found), warpSize/2);
         }
 
         // check if we found pointer, get its entry if so
-        key_pointer = __ballot(entry.pointer != GPLDA_HASH_NULL_POINTER) & half_lane_mask;
+        key_pointer = __ballot(pointer(entry) != null_pointer()) & half_lane_mask;
         if(key_pointer != 0) {
-          entry = ring_buffer[entry.pointer];
+          entry = ring_buffer[pointer(entry)];
         }
       } while(key_pointer != 0);
+      // TODO: check if we read back the same thing in the first slot
 
       // check if Robin Hood guarantee indicates no key is present
-      u32 no_key = __ballot(entry.key == GPLDA_HASH_EMPTY || key_distance(entry.key, slot) < i) & half_lane_mask;
+      u32 no_key = __ballot(entry == empty() || key_distance(key(entry), slot) < i) & half_lane_mask;
       if(no_key != 0) {
         return 0;
       }
@@ -275,35 +319,34 @@ struct HashMap {
 
 
 
-  __device__ inline i32 try_accumulate2(u32 key, i32 diff) {
+  __device__ inline i32 try_accumulate2(u32 half_warp_key, i32 diff) {
     // determine half warp indices
     i32 lane_idx = threadIdx.x % warpSize;
     i32 half_lane_idx = threadIdx.x % (warpSize / 2);
     u32 half_lane_mask = 0x0000ffff << (((threadIdx.x % warpSize) / 16) * 4); // 4 if lane >= 16, 0 otherwise
 
     // build entry to be inserted and shuffle to entire half warp
-    HashMapEntry half_warp_entry = entry(false,GPLDA_HASH_NULL_POINTER,key,diff);
-    half_warp_entry.int_repr = __shfl(half_warp_entry.int_repr, 0, warpSize/2);
+    u64 half_warp_entry = __shfl(entry(false,null_pointer(),half_warp_key,diff), 0, warpSize/2);
 
     // insert key into linked queue
-    HashMapEntry thread_table_entry;
-    i32 slot = hash_slot(key,a,b);
-    i32 stride = hash_slot(key,c,d);
+    u64 thread_table_entry;
+    i32 slot = hash_slot(half_warp_key,a,b);
+    i32 stride = hash_slot(half_warp_key,c,d);
     for(i32 i = 0; i < GPLDA_HASH_MAX_NUM_LINES; ++i) {
       // compute slot
-      slot = (slot + stride) % size;
+      i32 insert_slot = (slot + i*stride) % size;
 
       // try to insert, retrying if race condition indicates it is necessary
       u32 retry;
       do {
         // retrieve entry for current half lane, set constants
-        thread_table_entry = data[slot + half_lane_idx];
+        thread_table_entry = data[insert_slot + half_lane_idx];
         retry = 0;
 
         // determine whether we found the key, an empty slot, or no key is present
-        u32 thread_found_key = thread_table_entry.key == key;
-        u32 thread_found_empty = thread_table_entry.key == GPLDA_HASH_EMPTY;
-        u32 thread_no_key = key_distance(thread_table_entry.key, slot) > i;
+        u32 thread_found_key = key(thread_table_entry) == half_warp_key;
+        u32 thread_found_empty = thread_table_entry == empty();
+        u32 thread_no_key = key_distance(key(thread_table_entry), insert_slot) > i;
 
         // determine which thread should write
         u32 half_warp_found_key = __ballot(thread_found_key) & half_lane_mask;
@@ -324,60 +367,55 @@ struct HashMap {
 
         if(half_warp_write != 0 && lane_idx == lane_write_idx) {
           // prepare new entry for table
-          u32 buffer_idx = GPLDA_HASH_NULL_POINTER;
+          u32 buffer_idx = null_pointer();
 
           // determine what kind of new entry we have
           if(thread_found_key == true) {
             // key found: accumulate value
-            half_warp_entry.value += thread_table_entry.value;
+            half_warp_entry = with_value(value(half_warp_entry) + value(thread_table_entry), half_warp_entry);
           } else if(thread_no_key == true) {
             // Robin Hood guarantee indicates no key present: insert into eviction queue
             buffer_idx = ring_buffer_pop();
             ring_buffer[buffer_idx] = half_warp_entry;
 
             // prepare new entry
-            half_warp_entry = thread_table_entry;
-            half_warp_entry.pointer = buffer_idx;
+            half_warp_entry = with_pointer(buffer_idx, thread_table_entry);
           }
 
           // swap new and old entry
-          u64 old_entry_int_repr = atomicCAS(&data[slot + half_lane_idx].int_repr, thread_table_entry.int_repr, half_warp_entry.int_repr);
+          u64 old_entry = atomicCAS(&data[insert_slot + half_lane_idx], thread_table_entry, half_warp_entry);
 
           // make sure retrieved entry matches what was expected, so we know that CAS succeeded
-          if(old_entry_int_repr != thread_table_entry.int_repr) {
+          if(old_entry != thread_table_entry) {
             // set retry indicator
             retry = true;
 
             // clear buffer, if it was requested
-            if(buffer_idx != GPLDA_HASH_NULL_POINTER) {
-              ring_buffer[buffer_idx] = entry(false, GPLDA_HASH_NULL_POINTER, GPLDA_HASH_EMPTY, 0);
+            if(buffer_idx != null_pointer()) {
+              ring_buffer[buffer_idx] = empty();
               ring_buffer_push(buffer_idx);
-              half_warp_entry.pointer = GPLDA_HASH_NULL_POINTER;
+              half_warp_entry = with_pointer(null_pointer(), half_warp_entry);
             } else {
-              half_warp_entry = entry(false, GPLDA_HASH_NULL_POINTER, GPLDA_HASH_EMPTY, 0);
+              half_warp_entry = empty();
             }
           }
         }
 
         // ensure entire halfwarp knows whether write succeeded
-        half_warp_entry.int_repr = __shfl(half_warp_entry.int_repr, 0, warpSize/2);
+        half_warp_entry = __shfl(half_warp_entry, 0, warpSize/2);
 
         // ensure retry, if necessary, is performed on entire half warp
         retry = __ballot(retry) & half_lane_mask;
       } while(retry != 0);
 
       // if half warp successfully performed a write, exit the loop
-      if(half_warp_entry.int_repr == entry(false, GPLDA_HASH_NULL_POINTER, GPLDA_HASH_EMPTY, 0).int_repr) {
+      if(half_warp_entry == empty()) {
+        slot = insert_slot;
         break;
+      } else if(i == GPLDA_HASH_MAX_NUM_LINES - 1) {
+        // insertion failed, return false
+        return false;
       }
-    }
-
-
-
-
-    // check to make sure insertion succeeded: if it failed, return
-    if(half_warp_entry.int_repr != entry(false, GPLDA_HASH_NULL_POINTER, GPLDA_HASH_EMPTY, 0).int_repr) {
-      return false;
     }
 
 
@@ -390,39 +428,39 @@ struct HashMap {
       thread_table_entry = data[slot + half_lane_idx];
       finished = false;
 
-      u32 half_warp_relocation = __ballot(thread_table_entry.relocate != 0) & half_lane_mask;
-      u32 half_warp_pointer = __ballot(thread_table_entry.pointer != GPLDA_HASH_NULL_POINTER) & half_lane_mask;
+      u32 half_warp_relocation = __ballot(relocate(thread_table_entry) != 0) & half_lane_mask;
+      u32 half_warp_pointer = __ballot(pointer(thread_table_entry) != null_pointer()) & half_lane_mask;
       if(half_warp_relocation != 0) {
         // resolve relocation bit: first, broadcast pointer to entire half warp, then retrieve entry
         u32 lane_link_entry_idx = __ffs(half_warp_relocation) - 1;
-        u32 half_warp_link_entry_pointer = __shfl(thread_table_entry.pointer, lane_link_entry_idx % (warpSize/2), warpSize/2);
-        HashMapEntry half_warp_link_entry = ring_buffer[half_warp_link_entry_pointer];
+        u32 half_warp_link_entry_pointer = __shfl(pointer(thread_table_entry), lane_link_entry_idx % (warpSize/2), warpSize/2);
+        u64 half_warp_link_entry = ring_buffer[half_warp_link_entry_pointer];
 
         // figure out whether linked element should take thread's slot, or whether thread's slot needs to be moved
-        if(half_warp_link_entry.relocate == 1) {
+        if(relocate(half_warp_link_entry) == 1) {
           // first linked element has a relocation bit: move it
           if(lane_idx == lane_link_entry_idx) {
             // no need to check for success: whether we succeed or fail, try again and keep going
-            atomicCAS(&data[slot + half_lane_idx].int_repr, thread_table_entry.int_repr, half_warp_link_entry.int_repr);
+            atomicCAS(&data[slot + half_lane_idx], thread_table_entry, half_warp_link_entry);
           }
         } else {
           // element has relocation bit, but its first linked element doesn't: find slot relocated element is supposed to go in
-          HashMapEntry half_warp_table_entry;
-          half_warp_table_entry.int_repr = __shfl(thread_table_entry.int_repr, lane_link_entry_idx % (warpSize/2), warpSize/2);
+          u64 half_warp_table_entry;
+          half_warp_table_entry = __shfl(thread_table_entry, lane_link_entry_idx % (warpSize/2), warpSize/2);
 
           // find slot relocated element is supposed to go into
-          i32 insert_stride = hash_slot(half_warp_table_entry.key,c,d);
+          i32 insert_stride = hash_slot(key(half_warp_table_entry),c,d);
           for(i32 i = 0; i < GPLDA_HASH_MAX_NUM_LINES; ++i) {
             i32 insert_slot = (slot + i * insert_stride) % size;
-            HashMapEntry thread_table_insert_entry = data[insert_slot + half_lane_idx];
+            u64 thread_table_insert_entry = data[insert_slot + half_lane_idx];
 
             // check first if slot contains an empty element: if so, insert the element there - no need to check pointers because they must be null
-            u32 slot_empty = __ballot(thread_table_insert_entry.key == GPLDA_HASH_EMPTY) & half_lane_mask;
+            u32 slot_empty = __ballot(thread_table_insert_entry == empty()) & half_lane_mask;
             if(slot_empty != 0) {
               i32 slot_empty_lane_idx = __ffs(slot_empty) - 1;
               if(lane_idx == slot_empty_lane_idx) {
-                u64 old_entry_int_repr = atomicCAS(&data[insert_slot + half_lane_idx].int_repr, thread_table_insert_entry.int_repr, thread_table_entry.int_repr);
-                if(old_entry_int_repr == entry(false, GPLDA_HASH_NULL_POINTER, GPLDA_HASH_EMPTY, 0).int_repr) {
+                u64 old_entry_int_repr = atomicCAS(&data[insert_slot + half_lane_idx], thread_table_insert_entry, thread_table_entry);
+                if(old_entry_int_repr == empty()) {
                   slot = insert_slot;
                 }
               }
@@ -433,29 +471,28 @@ struct HashMap {
 
             // assuming slot is full, check pointers to see if element is there
             u32 found;
-            u32 pointer;
-            HashMapEntry* address = &data[insert_slot + half_lane_idx];
+            u32 ptr;
+            u64* address = &data[insert_slot + half_lane_idx];
             do {
               // if element is found, set relocation bit on its first link
               found = false;
-              if(thread_table_insert_entry.int_repr == half_warp_table_entry.int_repr) {
+              if(thread_table_insert_entry == half_warp_table_entry) {
                 found = true;
-                HashMapEntry half_warp_link_entry_with_relocate = half_warp_link_entry;
-                half_warp_link_entry_with_relocate.relocate = 1;
+                u64 half_warp_link_entry_with_relocate = with_relocate(1, half_warp_link_entry);
                 // no need to check for success: whether we succeed or fail, try again and keep going
-                atomicCAS(&ring_buffer[half_warp_link_entry_pointer].int_repr, half_warp_link_entry.int_repr, half_warp_link_entry_with_relocate.int_repr);
+                atomicCAS(&ring_buffer[half_warp_link_entry_pointer], half_warp_link_entry, half_warp_link_entry_with_relocate);
               }
               found = __ballot(found == true) & half_lane_mask;
 
               // if pointers are present, follow them and check again
-              pointer = false;
-              if(found == 0 && thread_table_insert_entry.pointer != GPLDA_HASH_NULL_POINTER) {
-                pointer = true;
-                address = &ring_buffer[thread_table_insert_entry.pointer];
+              ptr = false;
+              if(found == 0 && pointer(thread_table_insert_entry) != null_pointer()) {
+                ptr = true;
+                address = &ring_buffer[pointer(thread_table_insert_entry)];
                 thread_table_insert_entry = *address;
               }
-              pointer = __ballot(pointer == true) & half_lane_mask;
-            } while(found == 0 && pointer != 0);
+              ptr = __ballot(ptr == true) & half_lane_mask;
+            } while(found == 0 && ptr != 0);
 
             // exit if we found an element
             if(found != 0) {
@@ -463,19 +500,18 @@ struct HashMap {
             }
 
             // after pointers have been exhausted, check if element should be evicted, and insert into queue
-            u32 evict = __ballot(key_distance(thread_table_insert_entry.key, insert_slot) < i) & half_lane_mask;
+            u32 evict = __ballot(key_distance(key(thread_table_insert_entry), insert_slot) < i) & half_lane_mask;
             if(evict != 0 && lane_idx == __ffs(evict) - 1) {
               // grab slot from ring buffer
               u32 buffer_idx = ring_buffer_pop();
               ring_buffer[buffer_idx] = half_warp_table_entry;
 
               // prepare entry for insertion
-              HashMapEntry thread_table_insert_entry_with_pointer = thread_table_insert_entry;
-              thread_table_insert_entry_with_pointer.pointer = buffer_idx;
+              u64 thread_table_insert_entry_with_pointer = with_pointer(buffer_idx, thread_table_insert_entry);
 
               // insert entry, returning value to ring buffer if insert failed
-              u64 old_entry_int_repr = atomicCAS(&address->int_repr, thread_table_insert_entry.int_repr, thread_table_insert_entry_with_pointer.int_repr);
-              if(old_entry_int_repr != thread_table_insert_entry.int_repr) {
+              u64 old_entry = atomicCAS(address, thread_table_insert_entry, thread_table_insert_entry_with_pointer);
+              if(old_entry != thread_table_insert_entry) {
                 ring_buffer_push(buffer_idx);
               }
             }
@@ -495,11 +531,10 @@ struct HashMap {
         // we have pointers, but no relocation bit: resolve pointer on first thread that found it
         if(lane_idx == __ffs(half_warp_pointer) - 1) {
           // set relocation bit
-          HashMapEntry thread_new_entry = thread_table_entry;
-          thread_new_entry.relocate = 1;
+          u64 thread_new_entry = with_relocate(1,thread_table_entry);
 
           // no need to check for success: whether we succeed or fail, try again and keep going
-          atomicCAS(&data[slot + half_lane_idx].int_repr, thread_table_entry.int_repr, thread_new_entry.int_repr);
+          atomicCAS(&data[slot + half_lane_idx], thread_table_entry, thread_new_entry);
         }
       } else {
         // no relocation bit or pointer present, so we must have either inserted to an empty slot or accumulated existing element
@@ -510,17 +545,15 @@ struct HashMap {
       finished = __ballot(finished) & half_lane_mask;
     } while(finished == 0);
 
-    // return empty element indicating success, or element that exceeded its maximum number of lines indicating failure
+    // return indicating success
     return true;
   }
 
   __device__ __forceinline__ void accumulate2(u32 key, i32 diff) {
     // try to accumulate
-    i32 success = try_accumulate2(key, diff);
+    volatile i32 success = try_accumulate2(key, diff);
 
-    if(!success) {
-      printf("accumulate2 failed");
-    }
+    printf("accumulate2:%d:%d\n", success, key);
 
     // rebuild if too large
 //    sync();
