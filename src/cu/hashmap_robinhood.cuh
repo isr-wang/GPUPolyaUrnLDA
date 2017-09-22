@@ -4,11 +4,13 @@
 #include "tuning.cuh"
 #include <curand_kernel.h> // need to add -lcurand to nvcc flags
 
-#include <cstdio>
-#include "assert.h"
-
 #define GPLDA_HASH_LINE_SIZE 16
 #define GPLDA_HASH_MAX_NUM_LINES 4
+#define GPLDA_HASH_DEBUG 1
+
+#ifdef GPLDA_HASH_DEBUG
+#include <cstdio>
+#endif
 
 namespace gplda {
 
@@ -117,7 +119,34 @@ struct HashMap {
 
 
 
-  __device__ __forceinline__ void ring_buffer_push(u32 element) {
+
+  #ifdef GPLDA_HASH_DEBUG
+  __device__ inline void debug_print_slot(u32 slot, u32 thread_idx, const char* title) {
+    if(threadIdx.x == thread_idx) {
+      printf(title);
+      printf("\n");
+      printf("hl\ts\tr\tp\tk\tv\n");
+      for(u32 s = slot; s < slot + warpSize/2; ++s) {
+        u64 entry = data[s % size];
+        printf("%d\t%d\t%d\t%x\t%x\t%d", s % 16, s % size, relocate(entry), pointer(entry), key(entry), value(entry));
+        while(pointer(entry) != null_pointer()) {
+          i32 buffer_idx = pointer(entry);
+          entry = ring_buffer[buffer_idx];
+          printf("\t-------->\t%d\t%d\t%x\t%x\t%d", buffer_idx, relocate(entry), pointer(entry), key(entry), value(entry));
+        }
+        printf("\n");
+      }
+      printf("\n");
+    }
+  }
+  #endif
+
+
+
+
+
+
+  __device__ inline void ring_buffer_push(u32 element) {
     // determine constants
     u32 lane_idx = threadIdx.x % warpSize;
 
@@ -143,7 +172,7 @@ struct HashMap {
     }
   }
 
-  __device__ __forceinline__ u32 ring_buffer_pop() {
+  __device__ inline u32 ring_buffer_pop() {
     // determine constants
     u32 lane_idx = threadIdx.x % warpSize;
 
@@ -164,7 +193,7 @@ struct HashMap {
     return warp_start + offset;
   }
 
-  __device__ __forceinline__ void ring_buffer_init(u64* b, u32* q, u32 s) {
+  __device__ inline void ring_buffer_init(u64* b, u32* q, u32 s) {
     // calculate initialization variables common for all threads
     i32 dim = (sync_type == block) ? blockDim.x : warpSize;
     i32 thread_idx = threadIdx.x % dim;
@@ -552,8 +581,6 @@ struct HashMap {
   __device__ __forceinline__ void accumulate2(u32 key, i32 diff) {
     // try to accumulate
     volatile i32 success = try_accumulate2(key, diff);
-
-    printf("accumulate2:%d:%d\n", success, key);
 
     // rebuild if too large
 //    sync();
