@@ -125,14 +125,14 @@ struct HashMap {
     if(threadIdx.x == thread_idx) {
       printf(title);
       printf("\n");
-      printf("hl\ts\tr\tp\tk\tv\n");
+      printf("hl:s\tr\tp\tk\tv\n");
       for(u32 s = slot; s < slot + warpSize/2; ++s) {
         u64 entry = data[s % size];
-        printf("%d\t%d\t%d\t%x\t%x\t%d", s % 16, s % size, relocate(entry), pointer(entry), key(entry), value(entry));
+        printf("%d:%d\t%d\t%x\t%x\t%d", s % 16, s % size, relocate(entry), pointer(entry), key(entry), value(entry));
         while(pointer(entry) != null_pointer()) {
           i32 buffer_idx = pointer(entry);
           entry = ring_buffer[buffer_idx];
-          printf("\t-------->\t%d\t%d\t%x\t%x\t%d", buffer_idx, relocate(entry), pointer(entry), key(entry), value(entry));
+          printf("\t-------->\t%d:%d\t%d\t%x\t%x\t%d", s % 16, buffer_idx, relocate(entry), pointer(entry), key(entry), value(entry));
         }
         printf("\n");
       }
@@ -413,6 +413,9 @@ struct HashMap {
             if(thread_found_key == true) {
               // key found: accumulate value
               half_warp_write_entry = with_value(value(half_warp_entry) + value(thread_table_entry), half_warp_entry);
+            } else if(thread_found_empty == true) {
+              // empty slot found: insert entry
+              half_warp_write_entry = half_warp_entry;
             } else if(thread_no_key == true) {
               // Robin Hood guarantee indicates no key present: insert into eviction queue
               buffer_idx = ring_buffer_pop();
