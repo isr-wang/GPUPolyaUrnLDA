@@ -170,7 +170,7 @@ struct HashMap {
 
     // increment number of elements that may be read from queue
     if(lane_idx == leader) {
-      do {} while(atomicCAS(&ring_buffer_read_end, warp_start, warp_start + warp_num_threads));
+      do {} while(atomicCAS(&ring_buffer_read_end, warp_start, warp_start + warp_num_threads) != warp_start);
     }
   }
 
