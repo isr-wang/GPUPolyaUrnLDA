@@ -397,7 +397,7 @@ struct HashMap {
             // determine whether we found the key, an empty slot, or no key is present
             thread_found_key = key(thread_table_entry) == half_warp_key;
             thread_found_empty = thread_table_entry == empty();
-            thread_no_key = key_distance(key(thread_table_entry), insert_slot) > i;
+            thread_no_key = key_distance(key(thread_table_entry), insert_slot) < i;
             thread_found_pointer = pointer(thread_table_entry) != null_pointer();
 
             // determine which thread should write
