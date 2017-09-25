@@ -125,14 +125,16 @@ struct HashMap {
     if(threadIdx.x == thread_idx) {
       printf(title);
       printf("\n");
-      printf("hl:s\tr\tp\tk\tv\n");
+      printf("hl:s\tr\tp\tk\tv\tis:st:d\n");
       for(u32 s = slot; s < slot + warpSize/2; ++s) {
         u64 entry = data[s % size];
-        printf("%d:%d\t%d\t%x\t%x\t%d", s % 16, s % size, relocate(entry), pointer(entry), key(entry), value(entry));
+        printf("%d:%d\t%d\t%d\t%d\t%d\t", s % 16, s % size, relocate(entry), pointer(entry), key(entry), value(entry));
+        if(entry != empty()) printf("%d:%d:%d", hash_slot(key(entry),a,b), hash_slot(key(entry),c,d), key_distance(key(entry), slot));
         while(pointer(entry) != null_pointer()) {
           i32 buffer_idx = pointer(entry);
           entry = ring_buffer[buffer_idx];
-          printf("\t-------->\t%d:%d\t%d\t%x\t%x\t%d", s % 16, buffer_idx, relocate(entry), pointer(entry), key(entry), value(entry));
+          printf("\t-------->\t%d:%d\t%d\t%d\t%d\t%d\t", s % 16, buffer_idx, relocate(entry), pointer(entry), key(entry), value(entry));
+          if(entry != empty()) printf("%d:%d:%d", hash_slot(key(entry),a,b), hash_slot(key(entry),c,d), key_distance(key(entry), slot));
         }
         printf("\n");
       }
@@ -305,7 +307,7 @@ struct HashMap {
     // shuffle key to entire half-warp
     half_warp_key = __shfl(half_warp_key, 0, warpSize/2);
     i32 half_lane_idx = threadIdx.x % (warpSize / 2);
-    u32 half_lane_mask = 0x0000ffff << (((threadIdx.x % warpSize) / 16) * 4); // 4 if lane >= 16, 0 otherwise
+    u32 half_lane_mask = 0x0000ffff << (((threadIdx.x % warpSize) / (warpSize / 2)) * (warpSize / 2)); // 4 if lane >= 16, 0 otherwise
 
     // check table
     i32 initial_slot = hash_slot(half_warp_key,a,b);
@@ -352,7 +354,7 @@ struct HashMap {
     // determine half warp indices
     i32 lane_idx = threadIdx.x % warpSize;
     i32 half_lane_idx = threadIdx.x % (warpSize / 2);
-    u32 half_lane_mask = 0x0000ffff << (((threadIdx.x % warpSize) / 16) * 4); // 4 if lane >= 16, 0 otherwise
+    u32 half_lane_mask = 0x0000ffff << (((threadIdx.x % warpSize) / (warpSize / 2)) * (warpSize / 2)); // 4 if lane >= 16, 0 otherwise
 
     // build entry to be inserted and shuffle to entire half warp
     u64 half_warp_entry = __shfl(entry(false,null_pointer(),half_warp_key,diff), 0, warpSize/2);
