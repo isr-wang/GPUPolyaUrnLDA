@@ -363,7 +363,6 @@ struct HashMap {
     i32 insert_failed = false;
 
     // insert key into linked queue
-    u64 thread_table_entry;
     i32 slot = hash_slot(half_warp_key,a,b);
     i32 stride = hash_slot(half_warp_key,c,d);
 
@@ -380,19 +379,38 @@ struct HashMap {
         u32 success;
         do {
           // retrieve entry for current half lane, set constants
-          thread_table_entry = data[insert_slot + half_lane_idx];
+          u64* thread_address = &data[insert_slot + half_lane_idx];
+          u64 thread_table_entry = *thread_address;
           retry = 0;
           success = 0;
 
-          // determine whether we found the key, an empty slot, or no key is present
-          u32 thread_found_key = key(thread_table_entry) == half_warp_key;
-          u32 thread_found_empty = thread_table_entry == empty();
-          u32 thread_no_key = key_distance(key(thread_table_entry), insert_slot) > i;
+          // TODO: don't overwrite relocation bit on linked entry: instead, move it first
+          u32 thread_found_key;
+          u32 thread_found_empty;
+          u32 thread_no_key;
+          u32 thread_found_pointer;
+          u32 half_warp_found_key;
+          u32 half_warp_found_empty;
+          u32 half_warp_no_key;
+          u32 half_warp_found_pointer;
+          do {
+            // determine whether we found the key, an empty slot, or no key is present
+            thread_found_key = key(thread_table_entry) == half_warp_key;
+            thread_found_empty = thread_table_entry == empty();
+            thread_no_key = key_distance(key(thread_table_entry), insert_slot) > i;
+            thread_found_pointer = pointer(thread_table_entry) != null_pointer();
 
-          // determine which thread should write
-          u32 half_warp_found_key = __ballot(thread_found_key) & half_lane_mask;
-          u32 half_warp_found_empty = __ballot(thread_found_empty) & half_lane_mask;
-          u32 half_warp_no_key = __ballot(thread_no_key) & half_lane_mask;
+            // determine which thread should write
+            half_warp_found_key = __ballot(thread_found_key) & half_lane_mask;
+            half_warp_found_empty = __ballot(thread_found_empty) & half_lane_mask;
+            half_warp_no_key = __ballot(thread_no_key) & half_lane_mask;
+            half_warp_found_pointer = __ballot(thread_found_pointer) & half_lane_mask;
+
+            if(thread_found_pointer == true) {
+              thread_address = &ring_buffer[pointer(thread_table_entry)];
+              thread_table_entry = *thread_address;
+            }
+          } while (half_warp_found_key == 0 && half_warp_found_pointer != 0);
 
           u32 half_warp_write;
           if(half_warp_found_key != 0) {
@@ -428,7 +446,7 @@ struct HashMap {
             }
 
             // swap new and old entry
-            u64 old_entry = atomicCAS(&data[insert_slot + half_lane_idx], thread_table_entry, half_warp_write_entry);
+            u64 old_entry = atomicCAS(thread_address, thread_table_entry, half_warp_write_entry);
 
             // make sure retrieved entry matches what was expected, so we know that CAS succeeded
             if(old_entry != thread_table_entry) {
@@ -475,7 +493,7 @@ struct HashMap {
       u32 finished;
       do {
         // find element to be resolved
-        thread_table_entry = data[slot + half_lane_idx];
+        u64 thread_table_entry = data[slot + half_lane_idx];
         finished = false;
 
         u32 half_warp_relocation = __ballot(relocate(thread_table_entry) != 0) & half_lane_mask;
