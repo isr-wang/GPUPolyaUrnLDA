@@ -307,7 +307,7 @@ struct HashMap {
     // shuffle key to entire half-warp
     half_warp_key = __shfl(half_warp_key, 0, warpSize/2);
     i32 half_lane_idx = threadIdx.x % (warpSize / 2);
-    u32 half_lane_mask = 0x0000ffff << (((threadIdx.x % warpSize) / (warpSize / 2)) * (warpSize / 2)); // 4 if lane >= 16, 0 otherwise
+    u32 half_lane_mask = 0x0000ffff << (((threadIdx.x % warpSize) / (warpSize / 2)) * (warpSize / 2));
 
     // check table
     i32 initial_slot = hash_slot(half_warp_key,a,b);
@@ -354,7 +354,7 @@ struct HashMap {
     // determine half warp indices
     i32 lane_idx = threadIdx.x % warpSize;
     i32 half_lane_idx = threadIdx.x % (warpSize / 2);
-    u32 half_lane_mask = 0x0000ffff << (((threadIdx.x % warpSize) / (warpSize / 2)) * (warpSize / 2)); // 4 if lane >= 16, 0 otherwise
+    u32 half_lane_mask = 0x0000ffff << (((threadIdx.x % warpSize) / (warpSize / 2)) * (warpSize / 2));
 
     // build entry to be inserted and shuffle to entire half warp
     u64 half_warp_entry = __shfl(entry(false,null_pointer(),half_warp_key,diff), 0, warpSize/2);
@@ -385,6 +385,8 @@ struct HashMap {
           success = 0;
 
           // TODO: don't overwrite relocation bit on linked entry: instead, move it first
+
+          // if there are pointers, follow them to determine distance
           u32 thread_found_key;
           u32 thread_found_empty;
           u32 thread_no_key;
@@ -485,8 +487,6 @@ struct HashMap {
     debug_print_slot(slot,0,"after");
     debug_print_slot(slot,16,"after");
 
-    // TODO: fix stage 1 before attempting to debug stage 2
-    return true;
 
     if(insert_failed == false) {
       // resolve queue
@@ -518,7 +518,14 @@ struct HashMap {
 
             // find slot relocated element is supposed to go into
             i32 insert_stride = hash_slot(key(half_warp_table_entry),c,d);
-            for(i32 i = 0; i < GPLDA_HASH_MAX_NUM_LINES; ++i) {
+            i32 insert_max_num_lines = GPLDA_HASH_MAX_NUM_LINES - key_distance(key(half_warp_table_entry), slot);
+            for(i32 i = 1; i <= insert_max_num_lines; ++i) {
+              // if we're at the last iteration and haven't exited the loop yet, return indicating failure
+              if(i == insert_max_num_lines) {
+                insert_failed = true;
+                break;
+              }
+
               i32 insert_slot = (slot + i * insert_stride) % size;
               u64 thread_table_insert_entry = data[insert_slot + half_lane_idx];
 
@@ -527,7 +534,8 @@ struct HashMap {
               if(slot_empty != 0) {
                 i32 slot_empty_lane_idx = __ffs(slot_empty) - 1;
                 if(lane_idx == slot_empty_lane_idx) {
-                  u64 old_entry_int_repr = atomicCAS(&data[insert_slot + half_lane_idx], thread_table_insert_entry, thread_table_entry);
+                  u64 thread_new_entry = with_relocate(0,with_pointer(null_pointer(), thread_table_entry));
+                  u64 old_entry_int_repr = atomicCAS(&data[insert_slot + half_lane_idx], thread_table_insert_entry, thread_new_entry);
                   if(old_entry_int_repr == empty()) {
                     slot = insert_slot;
                   }
@@ -587,11 +595,6 @@ struct HashMap {
               // exit if we evicted
               if(evict != 0) {
                 break;
-              }
-
-              // if we're at the last iteration and haven't exited the loop yet, return indicating failure
-              if(i == GPLDA_HASH_MAX_NUM_LINES - 1) {
-                insert_failed = true;
               }
             }
           }
