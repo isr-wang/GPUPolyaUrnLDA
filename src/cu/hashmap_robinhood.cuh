@@ -506,11 +506,15 @@ struct HashMap {
 
           // figure out whether linked element should take thread's slot, or whether thread's slot needs to be moved
           if(relocate(half_warp_link_entry) == 1) {
-            // first linked element has a relocation bit: move it
+            // first linked element has a relocation bit: remove relocation bit, move it and advance to next slot
             if(lane_idx == lane_link_entry_idx) {
-              // no need to check for success: whether we succeed or fail, try again and keep going
-              atomicCAS(&data[slot + half_lane_idx], thread_table_entry, half_warp_link_entry);
+              u64 half_warp_link_entry_without_relocate = with_relocate(0, half_warp_link_entry);
+              u64 old_entry = atomicCAS(&data[slot + half_lane_idx], thread_table_entry, half_warp_link_entry_without_relocate);
+
+              // TODO: advance to next slot
             }
+            // ensure entire half warp advances to next slot
+            slot = __shfl(slot, lane_link_entry_idx % (warpSize/2), warpSize/2);
           } else {
             // element has relocation bit, but its first linked element doesn't: find slot relocated element is supposed to go in
             u64 half_warp_table_entry;
@@ -527,38 +531,23 @@ struct HashMap {
               }
 
               i32 insert_slot = (slot + i * insert_stride) % size;
-              u64 thread_table_insert_entry = data[insert_slot + half_lane_idx];
+              u64* address = &data[insert_slot + half_lane_idx];
+              u64 thread_table_insert_entry = *address;
 
-              // check first if slot contains an empty element: if so, insert the element there - no need to check pointers because they must be null
-              u32 slot_empty = __ballot(thread_table_insert_entry == empty()) & half_lane_mask;
-              if(slot_empty != 0) {
-                i32 slot_empty_lane_idx = __ffs(slot_empty) - 1;
-                if(lane_idx == slot_empty_lane_idx) {
-                  u64 thread_new_entry = with_relocate(0,with_pointer(null_pointer(), thread_table_entry));
-                  u64 old_entry_int_repr = atomicCAS(&data[insert_slot + half_lane_idx], thread_table_insert_entry, thread_new_entry);
-                  if(old_entry_int_repr == empty()) {
-                    slot = insert_slot;
-                  }
-                }
-                // ensure entire half warp knows the new slot value, if it changed
-                slot = __shfl(slot, slot_empty_lane_idx % (warpSize/2), warpSize/2);
-                break;
-              }
 
-              // assuming slot is full, check pointers to see if element is there
+              // first, check the slot and possible pointers to see if element is there
               u32 found;
               u32 ptr;
-              u64* address = &data[insert_slot + half_lane_idx];
               do {
                 // if element is found, set relocation bit on its first link
                 found = false;
-                if(thread_table_insert_entry == half_warp_table_entry) {
+                if(key(thread_table_insert_entry) == key(half_warp_table_entry)) {
                   found = true;
                   u64 half_warp_link_entry_with_relocate = with_relocate(1, half_warp_link_entry);
                   // no need to check for success: whether we succeed or fail, try again and keep going
                   atomicCAS(&ring_buffer[half_warp_link_entry_pointer], half_warp_link_entry, half_warp_link_entry_with_relocate);
                 }
-                found = __ballot(found == true) & half_lane_mask;
+                found = __ballot(found) & half_lane_mask;
 
                 // if pointers are present, follow them and check again
                 ptr = false;
@@ -567,11 +556,22 @@ struct HashMap {
                   address = &ring_buffer[pointer(thread_table_insert_entry)];
                   thread_table_insert_entry = *address;
                 }
-                ptr = __ballot(ptr == true) & half_lane_mask;
+                ptr = __ballot(ptr) & half_lane_mask;
               } while(found == 0 && ptr != 0);
 
               // exit if we found an element
               if(found != 0) {
+                break;
+              }
+
+              // if no pointers, check to see if slot contains an empty element
+              u32 slot_empty = __ballot(thread_table_insert_entry == empty()) & half_lane_mask;
+              if(slot_empty != 0) {
+                i32 slot_empty_lane_idx = __ffs(slot_empty) - 1;
+                if(lane_idx == slot_empty_lane_idx) {
+                  u64 thread_new_entry = with_relocate(0,with_pointer(null_pointer(), thread_table_entry));
+                  atomicCAS(&data[insert_slot + half_lane_idx], thread_table_insert_entry, thread_new_entry);
+                }
                 break;
               }
 
