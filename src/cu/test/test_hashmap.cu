@@ -30,16 +30,61 @@ __global__ void test_hash_map_accumulate2(void* map_storage, u32 total_map_size,
   i32 half_warp_idx = threadIdx.x / (warpSize / 2);
   i32 half_lane_idx = threadIdx.x % (warpSize / 2);
 
-  num_elements = 1;
+//  num_elements = 120;
+//  num_unique_elements = num_elements;
+//
+//  for(i32 i = 0; i < 100; ++i) {
+//    if(threadIdx.x == 0)
+//      printf("hash:%d:%d:%d\n", i, m->hash_slot(i,m->a,m->b),m->hash_slot(i,m->c,m->d));
+//  }
+//
+//  // 16
+//  m->accumulate2(threadIdx.x < 16 ? 0 : 3, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 6 : 9, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 12 : 15, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 18 : 21, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 24 : 27, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 30 : 33, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 36 : 39, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 42 : 45, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//
+//  // 16->32
+//  m->accumulate2(threadIdx.x < 16 ? 48 : 51, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 54 : 57, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 60 : 63, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 66 : 69, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 72 : 75, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 78 : 81, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 84 : 87, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 90 : 93, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//
+//  // 48
+//  m->accumulate2(threadIdx.x < 16 ? 1 : 4, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 7 : 10, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 13 : 16, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 19 : 22, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 25 : 28, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 31 : 34, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 37 : 40, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 43 : 46, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//
+//  // 16->48 evict
+//  m->accumulate2(threadIdx.x < 16 ? 96 : 99, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 102 : 105, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 108 : 111, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 114 : 117, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 120 : 123, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 126 : 129, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 132 : 135, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//  m->accumulate2(threadIdx.x < 16 ? 138 : 141, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+
+
 
   // accumulate elements
   for(i32 offset = 0; offset < num_elements / dim + 1; ++offset) {
     u32 i = offset * dim + half_warp_idx;
     m->accumulate2(i % num_unique_elements, i < num_elements ? 1 : 0);
   }
-
-  // TODO: fix infinite loop in get2
-  return;
 
   // sync if needed
   if(sync_type == gplda::block) {

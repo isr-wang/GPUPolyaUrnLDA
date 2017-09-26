@@ -366,9 +366,6 @@ struct HashMap {
     i32 slot = hash_slot(half_warp_key,a,b);
     i32 stride = hash_slot(half_warp_key,c,d);
 
-    debug_print_slot(slot,0,"before");
-    debug_print_slot(slot,16,"before");
-
     if(insert_failed == false) {
       for(i32 i = 0; i < GPLDA_HASH_MAX_NUM_LINES; ++i) {
         // compute slot
@@ -482,11 +479,6 @@ struct HashMap {
         }
       }
     }
-
-    __syncthreads();
-    debug_print_slot(slot,0,"after");
-    debug_print_slot(slot,16,"after");
-
 
     if(insert_failed == false) {
       // resolve queue
