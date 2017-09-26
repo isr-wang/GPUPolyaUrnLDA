@@ -507,14 +507,52 @@ struct HashMap {
           // figure out whether linked element should take thread's slot, or whether thread's slot needs to be moved
           if(relocate(half_warp_link_entry) == 1) {
             // first linked element has a relocation bit: remove relocation bit, move it and advance to next slot
+            i32 advance = false;
             if(lane_idx == lane_link_entry_idx) {
               u64 half_warp_link_entry_without_relocate = with_relocate(0, half_warp_link_entry);
               u64 old_entry = atomicCAS(&data[slot + half_lane_idx], thread_table_entry, half_warp_link_entry_without_relocate);
-
-              // TODO: advance to next slot
+              if(old_entry == thread_table_entry) {
+                advance = true;
+              }
             }
-            // ensure entire half warp advances to next slot
-            slot = __shfl(slot, lane_link_entry_idx % (warpSize/2), warpSize/2);
+            advance = __ballot(advance) & half_lane_mask;
+            if(advance != 0) {
+              // advance to next slot, until we find the previously-lined entry's key
+              i32 advance_stride = hash_slot(key(half_warp_link_entry), c,d);
+              i32 advance_max_num_lines = GPLDA_HASH_MAX_NUM_LINES - key_distance(key(half_warp_link_entry), slot);
+              for(i32 i = 1; i < advance_max_num_lines; ++i) {
+                i32 advance_slot = (slot + i * advance_stride) % size;
+                u64* address = &data[advance_slot + half_lane_idx];
+                u64 thread_advance_entry = *address;
+
+                // check slot and possible pointers to see if element is there
+                u32 found;
+                u32 ptr;
+                do {
+                  // if element is found, set flag, broadcast it, and exit the loop
+                  found = false;
+                  if(key(thread_advance_entry) == key(half_warp_link_entry)) {
+                    found = true;
+                  }
+                  found = __ballot(found) & half_lane_mask;
+
+                  // if pointers are present, follow them and check again
+                  ptr = false;
+                  if(found == 0 && pointer(thread_advance_entry) != null_pointer()) {
+                    ptr = true;
+                    address = &ring_buffer[pointer(thread_advance_entry)];
+                    thread_advance_entry = *address;
+                  }
+                  ptr = __ballot(ptr) & half_lane_mask;
+                } while(found == 0 && ptr != 0);
+
+                // exit loop if we found the element and set the new slot
+                if(found != 0) {
+                  slot = __shfl(advance_slot, lane_link_entry_idx % (warpSize/2), warpSize/2);
+                  break;
+                }
+              }
+            }
           } else {
             // element has relocation bit, but its first linked element doesn't: find slot relocated element is supposed to go in
             u64 half_warp_table_entry;
