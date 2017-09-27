@@ -324,7 +324,7 @@ struct HashMap {
         // check if we found key, return its value if so
         key_found = __ballot(key(entry) == half_warp_key) & half_lane_mask;
         if(key_found != 0) {
-          return __shfl(value(entry), __ffs(key_found), warpSize/2);
+          return __shfl(value(entry), __ffs(key_found) - 1, warpSize/2);
         }
 
         // check if we found pointer, get its entry if so

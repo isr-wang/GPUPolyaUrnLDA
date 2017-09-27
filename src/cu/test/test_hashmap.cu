@@ -78,13 +78,18 @@ __global__ void test_hash_map_accumulate2(void* map_storage, u32 total_map_size,
 //  m->accumulate2(threadIdx.x < 16 ? 132 : 135, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
 //  m->accumulate2(threadIdx.x < 16 ? 138 : 141, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
 
-
-
   // accumulate elements
   for(i32 offset = 0; offset < num_elements / dim + 1; ++offset) {
     u32 i = offset * dim + half_warp_idx;
     m->accumulate2(i % num_unique_elements, i < num_elements ? 1 : 0);
   }
+
+//  m->debug_print_slot(0, 0, "");
+//  m->debug_print_slot(16, 0, "");
+//  m->debug_print_slot(32, 0, "");
+//  m->debug_print_slot(48, 0, "");
+//  m->debug_print_slot(64, 0, "");
+//  m->debug_print_slot(80, 0, "");
 
   // sync if needed
   if(sync_type == gplda::block) {
@@ -163,18 +168,18 @@ void test_hash_map() {
     assert(out_host[i] == num_elements / num_unique_elements);
     out_host[i] = 0;
   }
-//
-//  // accumulate2<block, no_rebuild>
-//  test_hash_map_accumulate2<gplda::block, false><<<1,GPLDA_POLYA_URN_SAMPLE_BLOCKDIM>>>(map, total_map_size, num_unique_elements, num_elements, max_size, num_concurrent_elements, out, rng);
-//  cudaDeviceSynchronize() >> GPLDA_CHECK;
-//
-//  cudaMemcpy(out_host, out, num_elements * sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
-//
-//  for(i32 i = 0; i < num_unique_elements; ++i) {
-//    assert(out_host[i] == num_elements / num_unique_elements);
-//    out_host[i] = 0;
-//  }
-//
+
+  // accumulate2<block, no_rebuild>
+  test_hash_map_accumulate2<gplda::block, false><<<1,GPLDA_POLYA_URN_SAMPLE_BLOCKDIM>>>(map, total_map_size, num_unique_elements, num_elements, max_size, num_concurrent_elements, out, rng);
+  cudaDeviceSynchronize() >> GPLDA_CHECK;
+
+  cudaMemcpy(out_host, out, num_elements * sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
+
+  for(i32 i = 0; i < num_unique_elements; ++i) {
+    assert(out_host[i] == num_elements / num_unique_elements);
+    out_host[i] = 0;
+  }
+
 //  // accumulate2<warp, rebuild>
 //  test_hash_map_accumulate2<gplda::warp, true><<<1,warpSize>>>(map, total_map_size, num_unique_elements, num_elements, max_size, num_concurrent_elements, out, rng);
 //  cudaDeviceSynchronize() >> GPLDA_CHECK;
