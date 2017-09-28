@@ -21,22 +21,7 @@ __global__ void test_hash_map_init(void* map_storage, u32 total_map_size, u32 in
   }
 }
 
-template<gplda::SynchronizationType sync_type, i32 rebuild>
-__global__ void test_hash_map_accumulate2(void* map_storage, u32 total_map_size, u32 num_unique_elements, u32 num_elements, u32 max_size, u32 num_concurrent_elements, u32* out, curandStatePhilox4_32_10_t* rng) {
-  __shared__ gplda::HashMap<sync_type> m[1];
-  u32 initial_size = rebuild ? num_elements : max_size;
-  m->init(map_storage, total_map_size, initial_size, num_concurrent_elements, rng);
-  i32 dim = (sync_type == gplda::block) ? blockDim.x / (warpSize / 2) : warpSize / (warpSize / 2);
-  i32 half_warp_idx = threadIdx.x / (warpSize / 2);
-  i32 half_lane_idx = threadIdx.x % (warpSize / 2);
-
-//  num_elements = 120;
-//  num_unique_elements = num_elements;
-//
-//  for(i32 i = 0; i < 100; ++i) {
-//    if(threadIdx.x == 0)
-//      printf("hash:%d:%d:%d\n", i, m->hash_slot(i,m->a,m->b),m->hash_slot(i,m->c,m->d));
-//  }
+//  m->a=26; m->b=1; m->c=30; m->d=13;
 //
 //  // 16
 //  m->accumulate2(threadIdx.x < 16 ? 0 : 3, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
@@ -77,6 +62,22 @@ __global__ void test_hash_map_accumulate2(void* map_storage, u32 total_map_size,
 //  m->accumulate2(threadIdx.x < 16 ? 126 : 129, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
 //  m->accumulate2(threadIdx.x < 16 ? 132 : 135, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
 //  m->accumulate2(threadIdx.x < 16 ? 138 : 141, 1); if(threadIdx.x == 0) printf("------------------------------------------------------------\n");
+//
+//  m->debug_print_slot(0, 0, "");
+//  m->debug_print_slot(16, 0, "");
+//  m->debug_print_slot(32, 0, "");
+//  m->debug_print_slot(48, 0, "");
+//  m->debug_print_slot(64, 0, "");
+//  m->debug_print_slot(80, 0, "");
+
+template<gplda::SynchronizationType sync_type, i32 rebuild>
+__global__ void test_hash_map_accumulate2(void* map_storage, u32 total_map_size, u32 num_unique_elements, u32 num_elements, u32 max_size, u32 num_concurrent_elements, u32* out, curandStatePhilox4_32_10_t* rng) {
+  __shared__ gplda::HashMap<sync_type> m[1];
+  u32 initial_size = rebuild ? num_elements : max_size;
+  m->init(map_storage, total_map_size, initial_size, num_concurrent_elements, rng);
+  i32 dim = (sync_type == gplda::block) ? blockDim.x / (warpSize / 2) : warpSize / (warpSize / 2);
+  i32 half_warp_idx = threadIdx.x / (warpSize / 2);
+  i32 half_lane_idx = threadIdx.x % (warpSize / 2);
 
   // accumulate elements
   for(i32 offset = 0; offset < num_elements / dim + 1; ++offset) {
@@ -84,12 +85,15 @@ __global__ void test_hash_map_accumulate2(void* map_storage, u32 total_map_size,
     m->accumulate2(i % num_unique_elements, i < num_elements ? 1 : 0);
   }
 
-//  m->debug_print_slot(0, 0, "");
-//  m->debug_print_slot(16, 0, "");
-//  m->debug_print_slot(32, 0, "");
-//  m->debug_print_slot(48, 0, "");
-//  m->debug_print_slot(64, 0, "");
-//  m->debug_print_slot(80, 0, "");
+  // sync if needed
+  if(sync_type == gplda::block) {
+    __syncthreads();
+  }
+
+  // rebuild if needed
+  if(rebuild == true) {
+    m->rebuild();
+  }
 
   // sync if needed
   if(sync_type == gplda::block) {
@@ -180,27 +184,27 @@ void test_hash_map() {
     out_host[i] = 0;
   }
 
-//  // accumulate2<warp, rebuild>
-//  test_hash_map_accumulate2<gplda::warp, true><<<1,warpSize>>>(map, total_map_size, num_unique_elements, num_elements, max_size, num_concurrent_elements, out, rng);
-//  cudaDeviceSynchronize() >> GPLDA_CHECK;
-//
-//  cudaMemcpy(out_host, out, num_elements * sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
-//
-//  for(i32 i = 0; i < num_unique_elements; ++i) {
-//    assert(out_host[i] == num_elements / num_unique_elements);
-//    out_host[i] = 0;
-//  }
-//
-//  // accumulate2<block, rebuild>
-//  test_hash_map_accumulate2<gplda::block, true><<<1,GPLDA_POLYA_URN_SAMPLE_BLOCKDIM>>>(map, total_map_size, num_unique_elements, num_elements, max_size, num_concurrent_elements, out, rng);
-//  cudaDeviceSynchronize() >> GPLDA_CHECK;
-//
-//  cudaMemcpy(out_host, out, num_elements * sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
-//
-//  for(i32 i = 0; i < num_unique_elements; ++i) {
-//    assert(out_host[i] == num_elements / num_unique_elements);
-//    out_host[i] = 0;
-//  }
+  // accumulate2<warp, rebuild>
+  test_hash_map_accumulate2<gplda::warp, true><<<1,warpSize>>>(map, total_map_size, num_unique_elements, num_elements, max_size, num_concurrent_elements, out, rng);
+  cudaDeviceSynchronize() >> GPLDA_CHECK;
+
+  cudaMemcpy(out_host, out, num_elements * sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
+
+  for(i32 i = 0; i < num_unique_elements; ++i) {
+    assert(out_host[i] == num_elements / num_unique_elements);
+    out_host[i] = 0;
+  }
+
+  // accumulate2<block, rebuild>
+  test_hash_map_accumulate2<gplda::block, true><<<1,GPLDA_POLYA_URN_SAMPLE_BLOCKDIM>>>(map, total_map_size, num_unique_elements, num_elements, max_size, num_concurrent_elements, out, rng);
+  cudaDeviceSynchronize() >> GPLDA_CHECK;
+
+  cudaMemcpy(out_host, out, num_elements * sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
+
+  for(i32 i = 0; i < num_unique_elements; ++i) {
+    assert(out_host[i] == num_elements / num_unique_elements);
+    out_host[i] = 0;
+  }
 
 
 

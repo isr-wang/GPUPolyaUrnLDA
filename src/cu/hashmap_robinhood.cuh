@@ -357,7 +357,7 @@ struct HashMap {
     u32 half_lane_mask = 0x0000ffff << (((threadIdx.x % warpSize) / (warpSize / 2)) * (warpSize / 2));
 
     // build entry to be inserted and shuffle to entire half warp
-    u64 half_warp_entry = __shfl(entry(false,null_pointer(),half_warp_key,diff), 0, warpSize/2);
+    u64 half_warp_entry = __shfl(entry(false,null_pointer(),half_warp_key,max(0,diff)), 0, warpSize/2);
 
     // create a variable so that we return only once
     i32 insert_failed = false;
@@ -366,7 +366,7 @@ struct HashMap {
     i32 slot = hash_slot(half_warp_key,a,b);
     i32 stride = hash_slot(half_warp_key,c,d);
 
-    if(insert_failed == false) {
+    if(diff != 0) {
       for(i32 i = 0; i < GPLDA_HASH_MAX_NUM_LINES; ++i) {
         // compute slot
         i32 insert_slot = (slot + i*stride) % size;
@@ -431,7 +431,8 @@ struct HashMap {
             // determine what kind of new entry we have
             if(thread_found_key == true) {
               // key found: accumulate value
-              half_warp_write_entry = with_value(value(half_warp_entry) + value(thread_table_entry), half_warp_entry);
+              i32 new_value = max(0, ((i32) value(thread_table_entry)) + diff);
+              half_warp_write_entry = with_value(new_value, half_warp_entry);
             } else if(thread_found_empty == true) {
               // empty slot found: insert entry
               half_warp_write_entry = half_warp_entry;
@@ -475,12 +476,12 @@ struct HashMap {
           break;
         } else if(i == GPLDA_HASH_MAX_NUM_LINES - 1) {
           // insertion failed, get ready to return false
-          insert_failed = true;
+          insert_failed = 1;
         }
       }
     }
 
-    if(insert_failed == false) {
+    if(diff != 0 && insert_failed == false) {
       // resolve queue
       u32 finished;
       do {
@@ -556,7 +557,7 @@ struct HashMap {
             for(i32 i = 1; i <= insert_max_num_lines; ++i) {
               // if we're at the last iteration and haven't exited the loop yet, return indicating failure
               if(i == insert_max_num_lines) {
-                insert_failed = true;
+                insert_failed = 2;
                 break;
               }
 
@@ -648,12 +649,12 @@ struct HashMap {
     }
 
     // return indicating success
-    return insert_failed ? 0 : 1;
+    return insert_failed;
   }
 
   __device__ __forceinline__ void accumulate2(u32 key, i32 diff) {
     // try to accumulate
-    volatile i32 success = try_accumulate2(key, diff);
+    i32 failure = try_accumulate2(key, diff);
 
     // rebuild if too large
 //    sync();
