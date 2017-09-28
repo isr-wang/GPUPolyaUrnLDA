@@ -99,7 +99,7 @@ struct HashMap {
     return bfe_b64(entry, 36, 20);
   }
 
-  __device__ __forceinline__ u32 value(u64 entry) {
+  __device__ __forceinline__ u64 value(u64 entry) {
     return bfe_b64(entry, 0, 36);
   }
 
@@ -431,7 +431,7 @@ struct HashMap {
             // determine what kind of new entry we have
             if(thread_found_key == true) {
               // key found: accumulate value
-              i32 new_value = max(0, ((i32) value(thread_table_entry)) + diff);
+              u64 new_value = max((u64) 0, ((u64) value(thread_table_entry)) + diff);
               half_warp_write_entry = with_value(new_value, half_warp_entry);
             } else if(thread_found_empty == true) {
               // empty slot found: insert entry
@@ -505,6 +505,8 @@ struct HashMap {
               u64 half_warp_link_entry_without_relocate = with_relocate(0, half_warp_link_entry);
               u64 old_entry = atomicCAS(&data[slot + half_lane_idx], thread_table_entry, half_warp_link_entry_without_relocate);
               if(old_entry == thread_table_entry) {
+                // make sure to return slot to ring buffer
+                ring_buffer_push(half_warp_link_entry_pointer);
                 advance = true;
               }
             }
