@@ -92,7 +92,7 @@ __global__ void test_hash_map_accumulate2(void* map_storage, u32 total_map_size,
 
   // rebuild if needed
   if(rebuild == true) {
-    m->rebuild();
+    m->trigger_resize(m->empty_key(), 0);
   }
 
   // sync if needed

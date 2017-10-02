@@ -98,7 +98,7 @@ struct HashMap {
 
     // synchronize to ensure initialization is complete
     if(sync_type == block) {
-     __syncthreads();
+      __syncthreads();
     }
   }
 
