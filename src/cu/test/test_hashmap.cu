@@ -82,7 +82,7 @@ __global__ void test_hash_map_accumulate2(void* map_storage, u32 total_map_size,
   // accumulate elements
   for(i32 offset = 0; offset < num_elements / dim + 1; ++offset) {
     u32 i = offset * dim + half_warp_idx;
-    m->accumulate2(i % num_unique_elements, i < num_elements ? 1 : 0);
+    m->insert2(i % num_unique_elements, i < num_elements ? 1 : 0);
   }
 
   // sync if needed

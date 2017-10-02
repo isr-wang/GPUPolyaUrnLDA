@@ -6,6 +6,7 @@
 
 #define GPLDA_HASH_LINE_SIZE 16
 #define GPLDA_HASH_MAX_NUM_LINES 4
+#define GPLDA_HASH_GROWTH_RATE 1.2f
 #define GPLDA_HASH_DEBUG 1
 
 #ifdef GPLDA_HASH_DEBUG
@@ -26,6 +27,11 @@ struct HashMap {
   u32 d;
   u32 rebuild_size;
   u32 rebuild_idx;
+  u32 rebuild_check;
+  u32 rebuild_a;
+  u32 rebuild_b;
+  u32 rebuild_c;
+  u32 rebuild_d;
   curandStatePhilox4_32_10_t* rng;
   u32 ring_buffer_start;
   u32 ring_buffer_read_end;
@@ -300,75 +306,64 @@ struct HashMap {
 
 
   __device__ inline void trigger_resize(u32 key, u32 diff) {
+    if(threadIdx.x % warpSize == 0) {
+      // generate new hash functions and set the new size
+      float4 r = curand_uniform4(rng);
+      atomicCAS(&rebuild_a, a, __float2uint_rz(size * r.w));
+      atomicCAS(&rebuild_b, b, __float2uint_rz(size * r.x));
+      atomicCAS(&rebuild_c, c, __float2uint_rz(size * r.y));
+      atomicCAS(&rebuild_d, d, __float2uint_rz(size * r.z));
+      atomicCAS(&rebuild_size, 0, umin(max_size, __float2uint_rz(size * GPLDA_HASH_GROWTH_RATE) + warpSize));
+    }
 
+    // place keys that collided first
+    attempt_insertion(key,diff);
+
+    // resolve remaining keys
+    join_resize();
   }
 
   __device__ inline void join_resize() {
-//    // calculate initialization variables common for all threads
-//    i32 dim = (sync_type == block) ? blockDim.x : warpSize;
-//    i32 half_warp_idx = (threadIdx.x % dim) / (warpSize / 2);
-//    i32 half_lane_idx = (threadIdx.x % dim) % (warpSize / 2);
-//
-//    // set the rebuild flag to lock the table and wait until lock is fully acquired
-//    if(half_warp_idx == 0 && half_lane_idx == 0) {
-//      rebuild = 1;
-//    }
-//    do {} while(concurrent_num_warps != 0);
-//
-//    // first, swap the pointers and generate new hash functions
-//    if(thread_idx == 0) {
-//      this->rebuild_temp = this->size;
-//      this->size = umin(this->max_size, __float2uint_rz(this->size * GPLDA_HASH_GROWTH_RATE) + warpSize);
-//      u64* d = this->data;
-//      u64* s = this->stash;
-//      this->data = this->temp_data;
-//      this->stash = this->temp_stash;
-//      this->temp_data = d;
-//      this->temp_stash = s;
-//      #pragma unroll
-//      for(i32 i = 0; i < GPLDA_HASH_NUM_FUNCTIONS; ++i) {
-//       this->a[i] = __float2uint_rz(size * curand_uniform(this->rng));
-//       this->b[i] = __float2uint_rz(size * curand_uniform(this->rng));
-//      }
-//      this->a_stash = __float2uint_rz(size * curand_uniform(this->rng));
-//      this->b_stash = __float2uint_rz(size * curand_uniform(this->rng));
-//    }
-//
-//    // synchronize to ensure pointers have been swapped
-//    sync();
-//
-//    // set map to empty
-//    for(i32 offset = 0; offset < size / dim + 1; ++offset) {
-//      i32 i = offset * dim + thread_idx;
-//      if(i < size) {
-//        data[i] = empty();
-//      }
-//    }
-//
-//    // synchronize to ensure table is empty
-//    sync();
-//
-//    // place keys that collided first
-//    try_accumulate2(key,diff);
-//
-//    // iterate over map and place remaining keys
-//    for(i32 offset = 0; offset < rebuild_temp / dim + 1; ++offset) {
-//      i32 i = offset * dim + thread_idx;
-//      if(i < rebuild_temp) {
-//        insert_no_rebuild(temp_data[i]);
-//      }
-//    }
-//
-//    // synchronize to ensure insertion is complete
-//    sync();
-//
-//    // unlock table
-//    if(half_warp_idx == 0 && half_lane_idx == 0) {
-//      rebuild = 0;
-//    }
-//
-//    // synchronize to ensure table is unlocked
-//    sync();
+    // if resize is not in progress, return immediately
+    if(__shfl(rebuild_size, 0) == 0) {
+      return;
+    }
+
+    // compute constants
+    i32 lane_idx = threadIdx.x % warpSize;
+
+    // iterate over map and place remaining keys
+    u32 idx = __shfl(rebuild_idx, 0);
+    while(idx < rebuild_size) {
+      // increment index
+      if(lane_idx == 0) {
+        idx = atomicAdd(&rebuild_idx, 2);
+      }
+      idx = __shfl(idx, 0);
+      if(lane_idx >= warpSize/2) {
+        idx += 1;
+      }
+
+      // if index exceeds table size, exit
+      if(idx < size) {
+        // get entry and follow pointers
+        u64 entry = data[idx];
+
+        // TODO: set pointer, insert, clear
+        attempt_insertion(key(entry), value(entry));
+      }
+    };
+
+    // iterate over map and ensure every key has been cleared
+    idx = __shfl(rebuild_check, 0);
+    while(idx < rebuild_size) {
+      // TODO: clear any leftover keys
+    }
+
+    // if everything has been inserted, swap pointers and complete resize
+    if(lane_idx == 0 && rebuild_check + 1 >= rebuild_size) {
+
+    }
   }
 
 
@@ -376,10 +371,6 @@ struct HashMap {
 
 
   __device__ inline u32 get2(u32 half_warp_key) {
-    if(rebuild_size != 0) {
-      join_resize();
-    }
-
     // shuffle key to entire half-warp
     half_warp_key = __shfl(half_warp_key, 0, warpSize/2);
     i32 half_lane_idx = threadIdx.x % (warpSize / 2);
@@ -427,7 +418,7 @@ struct HashMap {
 
 
 
-  __device__ inline void try_linked_queue_insert(u32& half_warp_key, i32& diff, i32& lane_idx, i32& half_lane_idx, u32& half_lane_mask, u64& half_warp_entry, i32& insert_failed, i32& slot, i32& stride) {
+  __device__ inline void linked_queue_insert(u32& half_warp_key, i32& diff, i32& lane_idx, i32& half_lane_idx, u32& half_lane_mask, u64& half_warp_entry, i32& insert_failed, i32& slot, i32& stride) {
     for(i32 i = 0; i < GPLDA_HASH_MAX_NUM_LINES; ++i) {
       // compute slot
       i32 insert_slot = (slot + i*stride) % size;
@@ -548,7 +539,7 @@ struct HashMap {
 
 
 
-  __device__ inline void try_linked_queue_resolve(i32& lane_idx, i32& half_lane_idx, u32& half_lane_mask, u64& half_warp_entry, i32& insert_failed, i32& slot, i32& stride) {
+  __device__ inline void linked_queue_resolve(i32& lane_idx, i32& half_lane_idx, u32& half_lane_mask, u64& half_warp_entry, i32& insert_failed, i32& slot, i32& stride) {
     // resolve queue
     u32 finished;
     do {
@@ -722,7 +713,7 @@ struct HashMap {
 
 
 
-  __device__ inline i32 try_accumulate2(u32 half_warp_key, i32 diff) {
+  __device__ inline i32 attempt_insertion(u32 half_warp_key, i32 diff) {
     // determine half warp indices
     i32 lane_idx = threadIdx.x % warpSize;
     i32 half_lane_idx = threadIdx.x % (warpSize / 2);
@@ -739,32 +730,33 @@ struct HashMap {
     i32 stride = hash_slot(half_warp_key,c,d);
 
     if(diff != 0) {
-      try_linked_queue_insert(half_warp_key, diff, lane_idx, half_lane_idx, half_lane_mask, half_warp_entry, insert_failed, slot, stride);
+      linked_queue_insert(half_warp_key, diff, lane_idx, half_lane_idx, half_lane_mask, half_warp_entry, insert_failed, slot, stride);
     }
 
     if(diff != 0 && insert_failed == false) {
-      try_linked_queue_resolve(lane_idx, half_lane_idx, half_lane_mask, half_warp_entry, insert_failed, slot, stride);
+      linked_queue_resolve(lane_idx, half_lane_idx, half_lane_mask, half_warp_entry, insert_failed, slot, stride);
     }
 
     // return indicating success
     return insert_failed;
   }
 
-  __device__ __forceinline__ void accumulate2(u32 key, i32 diff) {
+
+
+
+
+
+  __device__ __forceinline__ void insert2(u32 key, i32 diff) {
     // if resize in progress, join
     join_resize();
 
-    // try to accumulate
-    i32 failure = try_accumulate2(key, diff);
+    // try to insert
+    i32 failure_resize = attempt_insertion(key, diff);
 
     // if a warp failed due to table being full, trigger resize
-    sync();
-    if(__ballot(failure == 1 || failure == 2) != 0) {
-      trigger_resize(failure == 1 ? key : empty_key(), failure == 1 ? diff : 0);
+    if(__ballot(failure_resize == 1 || failure_resize == 2) != 0) {
+      trigger_resize(failure_resize == 1 ? key : empty_key(), failure_resize == 1 ? diff : 0);
     }
-    sync();
-
-    join_resize();
   }
 };
 
