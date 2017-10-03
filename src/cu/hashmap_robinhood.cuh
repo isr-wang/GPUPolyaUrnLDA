@@ -331,6 +331,7 @@ struct HashMap {
 
     // compute constants
     i32 lane_idx = threadIdx.x % warpSize;
+    i32 half_lane_idx = threadIdx.x % (warpSize / 2);
 
     // iterate over map and place remaining keys
     u32 idx = __shfl(rebuild_idx, 0);
@@ -346,18 +347,82 @@ struct HashMap {
 
       // if index exceeds table size, exit
       if(idx < size) {
-        // get entry and follow pointers
-        u64 entry = data[idx];
+        // repeat until pointers have been exhausted
+        i32 repeat;
+        do {
+          // clear repeat value on all threads
+          repeat = false;
 
-        // TODO: set pointer, insert, clear
-        attempt_insertion(key(entry), value(entry));
+          // get entry
+          u64 thread_entry;
+          u64 thread_previous_entry;
+          u64* address;
+          u64* previous_address;
+          i32 address_buffer = null_pointer();
+          if(half_lane_idx == 0) {
+            // follow pointers
+            address = &data[idx];
+            thread_entry = *address;
+            while(pointer(thread_entry) != null_pointer()) {
+              address_buffer = pointer(thread_entry);
+              previous_address = address;
+              thread_previous_entry = thread_entry;
+              address = &ring_buffer[address_buffer];
+              thread_entry = *address;
+            };
+
+            // swap in new element
+            u64 old = atomicCAS(address, thread_entry, with_pointer(resize_pointer(), thread_entry));
+
+            // don't insert anything if swap failed
+            if(old != thread_entry) {
+              thread_entry = empty();
+            }
+          }
+
+          // broadcast thread_entry to entire half warp
+          thread_entry = __shfl(thread_entry, 0, warpSize/2);
+
+          // perform insertion
+          attempt_insertion(key(thread_entry), value(thread_entry));
+
+          // clear element
+          if(half_lane_idx == 0 && thread_entry != empty()) {
+            // determine whether element was in ring buffer or in table
+            if(address_buffer != null_pointer()) {
+              // if element was in ring buffer, unlink it, and then return it
+              u64 old = atomicCAS(previous_address, thread_previous_entry, with_pointer(null_pointer(), thread_previous_entry));
+
+              // return to ring buffer, as long as unlinking succeeded, else another thread already did that
+              if(old == thread_previous_entry) {
+                ring_buffer_push(address_buffer);
+              }
+
+              // ensure we don't stop to the next slot in the table
+              repeat = true;
+            } else {
+              // no need to unlink anything because entry was in the table: set it to empty
+              atomicCAS(address, thread_entry, empty()); // no need to check for failure: only possible because another thread did it first
+            }
+
+          }
+        } while(repeat != 0);
       }
     };
 
     // iterate over map and ensure every key has been cleared
     idx = __shfl(rebuild_check, 0);
     while(idx < rebuild_size) {
-      // TODO: clear any leftover keys
+      // clear any leftover keys
+      u64 thread_entry = idx+lane_idx < size ? data[idx+lane_idx] : empty();
+      u32 warp_unfinished_entries = __ballot(thread_entry != empty());
+
+      // TODO: if there are unfinished entries, place those
+
+      // finally, update the index to indicate check is complete
+      if(warp_unfinished_entries == 0 && lane_idx == 0) {
+        atomicCAS(&rebuild_check, idx, idx+32);
+      }
     }
 
     // if everything has been inserted, swap pointers and complete resize
