@@ -122,6 +122,10 @@ struct HashMap {
     return 0xfffff;
   }
 
+  __device__ __forceinline__ static constexpr u64 empty_resize() {
+    return (((u64) resize_pointer()) << 56) | (((u64) empty_key()) << 36);
+  }
+
   __device__ __forceinline__ static constexpr u64 empty() {
     return (((u64) null_pointer()) << 56) | (((u64) empty_key()) << 36);
   }
@@ -333,6 +337,24 @@ struct HashMap {
     i32 lane_idx = threadIdx.x % warpSize;
     i32 half_lane_idx = threadIdx.x % (warpSize / 2);
 
+    // move entries
+    resize_move(lane_idx, half_lane_idx);
+
+    // clear any unfinished entries
+    resize_clear(lane_idx, half_lane_idx);
+
+    // if everything has been inserted, swap pointers and complete resize
+    if(lane_idx == 0 && rebuild_check + 1 >= rebuild_size) {
+      // TODO: last warp sets old memory to empty
+    }
+  }
+
+
+
+
+
+
+  __device__ inline void resize_move(i32& lane_idx, i32& half_lane_idx) {
     // iterate over map and place remaining keys
     u32 idx = __shfl(rebuild_idx, 0);
     while(idx < rebuild_size) {
@@ -402,16 +424,22 @@ struct HashMap {
               repeat = true;
             } else {
               // no need to unlink anything because entry was in the table: set it to empty
-              atomicCAS(address, thread_entry, empty()); // no need to check for failure: only possible because another thread did it first
+              atomicCAS(address, thread_entry, empty_resize()); // no need to check for failure: only possible because another thread did it first
             }
 
           }
         } while(repeat != 0);
       }
     };
+  }
 
+
+
+
+
+  __device__ inline void resize_clear(i32& lane_idx, i32& half_lane_idx) {
     // iterate over map and ensure every key has been cleared
-    idx = __shfl(rebuild_check, 0);
+    u32 idx = __shfl(rebuild_check, 0);
     while(idx < rebuild_size) {
       // clear any leftover keys
       u64 thread_entry = idx+lane_idx < size ? data[idx+lane_idx] : empty();
@@ -423,11 +451,6 @@ struct HashMap {
       if(warp_unfinished_entries == 0 && lane_idx == 0) {
         atomicCAS(&rebuild_check, idx, idx+32);
       }
-    }
-
-    // if everything has been inserted, swap pointers and complete resize
-    if(lane_idx == 0 && rebuild_check + 1 >= rebuild_size) {
-
     }
   }
 
