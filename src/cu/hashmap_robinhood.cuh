@@ -506,7 +506,7 @@ struct HashMap {
 
 
 
-  __device__ inline void linked_queue_insert(u32& half_warp_key, i32& diff, i32& lane_idx, i32& half_lane_idx, u32& half_lane_mask, u64& half_warp_entry, i32& insert_failed, i32& slot, i32& stride) {
+  __device__ inline void insert_phase_1(u32& half_warp_key, i32& diff, i32& lane_idx, i32& half_lane_idx, u32& half_lane_mask, u64& half_warp_entry, i32& insert_failed, i32& slot, i32& stride) {
     for(i32 i = 0; i < GPLDA_HASH_MAX_NUM_LINES; ++i) {
       // compute slot
       i32 insert_slot = (slot + i*stride) % size;
@@ -625,170 +625,239 @@ struct HashMap {
 
 
 
+  __device__ inline i32 insert_phase_2_determine_stage(i32& half_lane_idx, u32& half_lane_mask, u64& thread_table_entry, u32& half_warp_relocation, u32& half_warp_pointer) {
+    // find element to be resolved
+    if(half_warp_relocation != 0) {
+      // resolve relocation bit: first, broadcast pointer to entire half warp, then retrieve entry
+      u32 lane_link_entry_idx = __ffs(half_warp_relocation) - 1;
+      u32 half_warp_link_entry_pointer = __shfl(pointer(thread_table_entry), lane_link_entry_idx % (warpSize/2), warpSize/2);
+      u64 half_warp_link_entry = ring_buffer[half_warp_link_entry_pointer];
+
+      // figure out whether linked element should take thread's slot, or whether thread's slot needs to be moved
+      if(relocate(half_warp_link_entry) == 1) {
+        return 4;
+      } else {
+        return 3; // TODO: or stage 2
+      }
+    } else if(half_warp_pointer != 0){
+      return 1;
+    } else {
+      return 5;
+    }
+
+  }
+
+  __device__ inline void insert_phase_2_stage_1(i32& lane_idx, u64& thread_table_entry, u32& half_warp_pointer) {
+    // Stage 1: we have pointers, but no relocation bit: resolve pointer on first thread that found it
+    if(lane_idx == __ffs(half_warp_pointer) - 1) {
+      // set relocation bit
+      u64 thread_new_entry = with_relocate(1,thread_table_entry);
+
+      // no need to check for success: whether we succeed or fail, try again and keep going
+      atomicCAS(&data[slot + half_lane_idx], thread_table_entry, thread_new_entry);
+    }
+  }
+
+  __device__ inline void insert_phase_2_stage_2() {
+    //
+  }
+
+  __device__ inline void insert_phase_2_stage_2_cleanup() {
+    //
+  }
+
+  __device__ inline void insert_phase_2_stage_3() {
+    // Stage 2 or 3: element has relocation bit, but its first linked element doesn't: find slot relocated element is supposed to go in
+    u64 half_warp_table_entry;
+    half_warp_table_entry = __shfl(thread_table_entry, lane_link_entry_idx % (warpSize/2), warpSize/2);
+
+    // find slot relocated element is supposed to go into
+    i32 insert_stride = hash_slot(key(half_warp_table_entry),c,d);
+    i32 insert_max_num_lines = GPLDA_HASH_MAX_NUM_LINES - key_distance(key(half_warp_table_entry), slot);
+    for(i32 i = 1; i <= insert_max_num_lines; ++i) {
+      // if we're at the last iteration and haven't exited the loop yet, return indicating failure
+      if(i == insert_max_num_lines) {
+        insert_failed = 2;
+        break;
+      }
+
+      i32 insert_slot = (slot + i * insert_stride) % size;
+      u64* address = &data[insert_slot + half_lane_idx];
+      u64 thread_table_insert_entry = *address;
 
 
-  __device__ inline void linked_queue_resolve(i32& lane_idx, i32& half_lane_idx, u32& half_lane_mask, u64& half_warp_entry, i32& insert_failed, i32& slot, i32& stride) {
+      // first, check the slot and possible pointers to see if element is there
+      u32 found;
+      u32 ptr;
+      do {
+        // if element is found, set relocation bit on its first link
+        found = false;
+        if(key(thread_table_insert_entry) == key(half_warp_table_entry)) {
+          found = true;
+          u64 half_warp_link_entry_with_relocate = with_relocate(1, half_warp_link_entry);
+          // no need to check for success: whether we succeed or fail, try again and keep going
+          atomicCAS(&ring_buffer[half_warp_link_entry_pointer], half_warp_link_entry, half_warp_link_entry_with_relocate);
+        }
+        found = __ballot(found) & half_lane_mask;
+
+        // if pointers are present, follow them and check again
+        ptr = false;
+        if(found == 0 && pointer(thread_table_insert_entry) != null_pointer()) {
+          ptr = true;
+          address = &ring_buffer[pointer(thread_table_insert_entry)];
+          thread_table_insert_entry = *address;
+        }
+        ptr = __ballot(ptr) & half_lane_mask;
+      } while(found == 0 && ptr != 0);
+
+      // exit if we found an element
+      if(found != 0) {
+        break;
+      }
+
+      // if no pointers, check to see if slot contains an empty element
+      u32 slot_empty = __ballot(thread_table_insert_entry == empty()) & half_lane_mask;
+      if(slot_empty != 0) {
+        i32 slot_empty_lane_idx = __ffs(slot_empty) - 1;
+        if(lane_idx == slot_empty_lane_idx) {
+          u64 thread_new_entry = with_relocate(0,with_pointer(null_pointer(), thread_table_entry));
+          atomicCAS(&data[insert_slot + half_lane_idx], thread_table_insert_entry, thread_new_entry);
+        }
+        break;
+      }
+
+      // after pointers have been exhausted, check if element should be evicted, and insert into queue
+      u32 evict = __ballot(key_distance(key(thread_table_insert_entry), insert_slot) < i) & half_lane_mask;
+      if(evict != 0 && lane_idx == __ffs(evict) - 1) {
+        // grab slot from ring buffer
+        u32 buffer_idx = ring_buffer_pop();
+        ring_buffer[buffer_idx] = half_warp_table_entry;
+
+        // prepare entry for insertion
+        u64 thread_table_insert_entry_with_pointer = with_pointer(buffer_idx, thread_table_insert_entry);
+
+        // insert entry, returning value to ring buffer if insert failed
+        u64 old_entry = atomicCAS(address, thread_table_insert_entry, thread_table_insert_entry_with_pointer);
+        if(old_entry != thread_table_insert_entry) {
+          ring_buffer_push(buffer_idx);
+        }
+      }
+
+      // exit if we evicted
+      if(evict != 0) {
+        break;
+      }
+    }
+
+  }
+
+  __device__ inline void insert_phase_2_stage_4() {
+      // Stage 4: first linked element has a relocation bit: remove relocation bit, move it and advance to next slot
+      i32 advance = false;
+      if(lane_idx == lane_link_entry_idx) {
+        u64 half_warp_link_entry_without_relocate = with_relocate(0, half_warp_link_entry);
+        u64 old_entry = atomicCAS(&data[slot + half_lane_idx], thread_table_entry, half_warp_link_entry_without_relocate);
+        if(old_entry == thread_table_entry) {
+          // make sure to return slot to ring buffer
+          ring_buffer_push(half_warp_link_entry_pointer);
+          advance = true;
+        }
+      }
+  }
+
+  __device__ inline void insert_phase_2_stage_4_advance() {
+    advance = __ballot(advance) & half_lane_mask;
+    if(advance != 0) {
+      // advance to next slot, until we find the previously-lined entry's key
+      i32 advance_stride = hash_slot(key(half_warp_link_entry), c,d);
+      i32 advance_max_num_lines = GPLDA_HASH_MAX_NUM_LINES - key_distance(key(half_warp_link_entry), slot);
+      for(i32 i = 1; i < advance_max_num_lines; ++i) {
+        i32 advance_slot = (slot + i * advance_stride) % size;
+        u64* address = &data[advance_slot + half_lane_idx];
+        u64 thread_advance_entry = *address;
+
+        // check slot and possible pointers to see if element is there
+        u32 found;
+        u32 ptr;
+        do {
+          // if element is found, set flag, broadcast it, and exit the loop
+          found = false;
+          if(key(thread_advance_entry) == key(half_warp_link_entry)) {
+            found = true;
+          }
+          found = __ballot(found) & half_lane_mask;
+
+          // if pointers are present, follow them and check again
+          ptr = false;
+          if(found == 0 && pointer(thread_advance_entry) != null_pointer()) {
+            ptr = true;
+            address = &ring_buffer[pointer(thread_advance_entry)];
+            thread_advance_entry = *address;
+          }
+          ptr = __ballot(ptr) & half_lane_mask;
+        } while(found == 0 && ptr != 0);
+
+        // exit loop if we found the element and set the new slot
+        if(found != 0) {
+          slot = __shfl(advance_slot, lane_link_entry_idx % (warpSize/2), warpSize/2);
+          break;
+        }
+      }
+    }
+  }
+
+
+
+
+
+  __device__ inline void insert_phase_2(i32& lane_idx, i32& half_lane_idx, u32& half_lane_mask,
+                                        u64& half_warp_entry, i32& insert_failed, i32& slot, i32& stride) {
     // resolve queue
     u32 finished;
     do {
-      // find element to be resolved
-      u64 thread_table_entry = data[slot + half_lane_idx];
-      finished = false;
-
+      // load entry from table
+      u64* thread_table_entry_address = &data[slot + half_lane_idx]
+      u64 thread_table_entry = *thread_table_entry_address;
       u32 half_warp_relocation = __ballot(relocate(thread_table_entry) != 0) & half_lane_mask;
       u32 half_warp_pointer = __ballot(pointer(thread_table_entry) != null_pointer()) & half_lane_mask;
-      if(half_warp_relocation != 0) {
-        // resolve relocation bit: first, broadcast pointer to entire half warp, then retrieve entry
-        u32 lane_link_entry_idx = __ffs(half_warp_relocation) - 1;
-        u32 half_warp_link_entry_pointer = __shfl(pointer(thread_table_entry), lane_link_entry_idx % (warpSize/2), warpSize/2);
-        u64 half_warp_link_entry = ring_buffer[half_warp_link_entry_pointer];
+      finished = false;
 
-        // figure out whether linked element should take thread's slot, or whether thread's slot needs to be moved
-        if(relocate(half_warp_link_entry) == 1) {
-          // first linked element has a relocation bit: remove relocation bit, move it and advance to next slot
-          i32 advance = false;
-          if(lane_idx == lane_link_entry_idx) {
-            u64 half_warp_link_entry_without_relocate = with_relocate(0, half_warp_link_entry);
-            u64 old_entry = atomicCAS(&data[slot + half_lane_idx], thread_table_entry, half_warp_link_entry_without_relocate);
-            if(old_entry == thread_table_entry) {
-              // make sure to return slot to ring buffer
-              ring_buffer_push(half_warp_link_entry_pointer);
-              advance = true;
-            }
-          }
-          advance = __ballot(advance) & half_lane_mask;
-          if(advance != 0) {
-            // advance to next slot, until we find the previously-lined entry's key
-            i32 advance_stride = hash_slot(key(half_warp_link_entry), c,d);
-            i32 advance_max_num_lines = GPLDA_HASH_MAX_NUM_LINES - key_distance(key(half_warp_link_entry), slot);
-            for(i32 i = 1; i < advance_max_num_lines; ++i) {
-              i32 advance_slot = (slot + i * advance_stride) % size;
-              u64* address = &data[advance_slot + half_lane_idx];
-              u64 thread_advance_entry = *address;
+      // declare swap values, which will be mutated later
+      u64* swap_address;
+      u64 swap_old_entry;
+      u64 swap_new_entry;
+      u64 swap_found_entry;
+      i32 swap_lane_idx = -1; // ensure no swap by default
 
-              // check slot and possible pointers to see if element is there
-              u32 found;
-              u32 ptr;
-              do {
-                // if element is found, set flag, broadcast it, and exit the loop
-                found = false;
-                if(key(thread_advance_entry) == key(half_warp_link_entry)) {
-                  found = true;
-                }
-                found = __ballot(found) & half_lane_mask;
+      // determine stage
+      i32 stage = insert_phase_2_determine_stage(half_lane_idx, half_lane_mask, thread_table_entry, half_warp_relocation, half_warp_pointer);
 
-                // if pointers are present, follow them and check again
-                ptr = false;
-                if(found == 0 && pointer(thread_advance_entry) != null_pointer()) {
-                  ptr = true;
-                  address = &ring_buffer[pointer(thread_advance_entry)];
-                  thread_advance_entry = *address;
-                }
-                ptr = __ballot(ptr) & half_lane_mask;
-              } while(found == 0 && ptr != 0);
-
-              // exit loop if we found the element and set the new slot
-              if(found != 0) {
-                slot = __shfl(advance_slot, lane_link_entry_idx % (warpSize/2), warpSize/2);
-                break;
-              }
-            }
-          }
-        } else {
-          // element has relocation bit, but its first linked element doesn't: find slot relocated element is supposed to go in
-          u64 half_warp_table_entry;
-          half_warp_table_entry = __shfl(thread_table_entry, lane_link_entry_idx % (warpSize/2), warpSize/2);
-
-          // find slot relocated element is supposed to go into
-          i32 insert_stride = hash_slot(key(half_warp_table_entry),c,d);
-          i32 insert_max_num_lines = GPLDA_HASH_MAX_NUM_LINES - key_distance(key(half_warp_table_entry), slot);
-          for(i32 i = 1; i <= insert_max_num_lines; ++i) {
-            // if we're at the last iteration and haven't exited the loop yet, return indicating failure
-            if(i == insert_max_num_lines) {
-              insert_failed = 2;
-              break;
-            }
-
-            i32 insert_slot = (slot + i * insert_stride) % size;
-            u64* address = &data[insert_slot + half_lane_idx];
-            u64 thread_table_insert_entry = *address;
-
-
-            // first, check the slot and possible pointers to see if element is there
-            u32 found;
-            u32 ptr;
-            do {
-              // if element is found, set relocation bit on its first link
-              found = false;
-              if(key(thread_table_insert_entry) == key(half_warp_table_entry)) {
-                found = true;
-                u64 half_warp_link_entry_with_relocate = with_relocate(1, half_warp_link_entry);
-                // no need to check for success: whether we succeed or fail, try again and keep going
-                atomicCAS(&ring_buffer[half_warp_link_entry_pointer], half_warp_link_entry, half_warp_link_entry_with_relocate);
-              }
-              found = __ballot(found) & half_lane_mask;
-
-              // if pointers are present, follow them and check again
-              ptr = false;
-              if(found == 0 && pointer(thread_table_insert_entry) != null_pointer()) {
-                ptr = true;
-                address = &ring_buffer[pointer(thread_table_insert_entry)];
-                thread_table_insert_entry = *address;
-              }
-              ptr = __ballot(ptr) & half_lane_mask;
-            } while(found == 0 && ptr != 0);
-
-            // exit if we found an element
-            if(found != 0) {
-              break;
-            }
-
-            // if no pointers, check to see if slot contains an empty element
-            u32 slot_empty = __ballot(thread_table_insert_entry == empty()) & half_lane_mask;
-            if(slot_empty != 0) {
-              i32 slot_empty_lane_idx = __ffs(slot_empty) - 1;
-              if(lane_idx == slot_empty_lane_idx) {
-                u64 thread_new_entry = with_relocate(0,with_pointer(null_pointer(), thread_table_entry));
-                atomicCAS(&data[insert_slot + half_lane_idx], thread_table_insert_entry, thread_new_entry);
-              }
-              break;
-            }
-
-            // after pointers have been exhausted, check if element should be evicted, and insert into queue
-            u32 evict = __ballot(key_distance(key(thread_table_insert_entry), insert_slot) < i) & half_lane_mask;
-            if(evict != 0 && lane_idx == __ffs(evict) - 1) {
-              // grab slot from ring buffer
-              u32 buffer_idx = ring_buffer_pop();
-              ring_buffer[buffer_idx] = half_warp_table_entry;
-
-              // prepare entry for insertion
-              u64 thread_table_insert_entry_with_pointer = with_pointer(buffer_idx, thread_table_insert_entry);
-
-              // insert entry, returning value to ring buffer if insert failed
-              u64 old_entry = atomicCAS(address, thread_table_insert_entry, thread_table_insert_entry_with_pointer);
-              if(old_entry != thread_table_insert_entry) {
-                ring_buffer_push(buffer_idx);
-              }
-            }
-
-            // exit if we evicted
-            if(evict != 0) {
-              break;
-            }
-          }
-        }
-      } else if(half_warp_pointer != 0){
-        // we have pointers, but no relocation bit: resolve pointer on first thread that found it
-        if(lane_idx == __ffs(half_warp_pointer) - 1) {
-          // set relocation bit
-          u64 thread_new_entry = with_relocate(1,thread_table_entry);
-
-          // no need to check for success: whether we succeed or fail, try again and keep going
-          atomicCAS(&data[slot + half_lane_idx], thread_table_entry, thread_new_entry);
-        }
+      // determine CAS target
+      if(stage == 1) {
+        insert_phase_2_stage_1(lane_idx, thread_table_entry, half_warp_pointer);
+      } else if(stage == 2) {
+        insert_phase_2_stage_2();
+      } else if(stage == 3) {
+        insert_phase_2_stage_3();
+      } else if(stage == 4) {
+        insert_phase_2_stage_4();
       } else {
-        // no relocation bit or pointer present, so we must have either inserted to an empty slot or accumulated existing element
+        // Stage 5: no relocation bit or pointer present, so we must have either inserted to an empty slot or accumulated existing element
         finished = true;
+      }
+
+      // perform CAS
+      if(lane_idx == swap_lane_idx) {
+        swap_found_entry = atomicCAS(swap_address, swap_old_entry, swap_new_entry);
+      }
+
+      // perform post-CAS operations
+      if(stage == 2 && swap_found_entry != swap_old_entry) {
+        // CAS failed: perform cleanup
+        insert_phase_2_stage_2_cleanup();
+      } else if(stage == 4 && swap_found_entry == swap_old_entry) {
+        // CAS succeeded: move to next slot
+        insert_phase_2_stage_4_advance();
       }
 
       // ensure entire half warp finishes
@@ -818,11 +887,11 @@ struct HashMap {
     i32 stride = hash_slot(half_warp_key,c,d);
 
     if(diff != 0) {
-      linked_queue_insert(half_warp_key, diff, lane_idx, half_lane_idx, half_lane_mask, half_warp_entry, insert_failed, slot, stride);
+      insert_phase_1(half_warp_key, diff, lane_idx, half_lane_idx, half_lane_mask, half_warp_entry, insert_failed, slot, stride);
     }
 
     if(diff != 0 && insert_failed == false) {
-      linked_queue_resolve(lane_idx, half_lane_idx, half_lane_mask, half_warp_entry, insert_failed, slot, stride);
+      insert_phase_2(lane_idx, half_lane_idx, half_lane_mask, half_warp_entry, insert_failed, slot, stride);
     }
 
     // return indicating success
