@@ -642,7 +642,7 @@ struct HashMap {
     half_warp_entry = __shfl(thread_table_entry, half_warp_entry_idx, warpSize/2);
   }
 
-  __device__ inline void insert_phase_2_determine_stage(i32& half_lane_idx, u32& half_lane_mask, u64& half_warp_temp, i32& stage) {
+  __device__ inline void insert_phase_2_determine_stage(i32& half_lane_idx, u32& half_lane_mask, i32& slot, u64& half_warp_entry, u64& half_warp_temp, i32& half_warp_temp_idx, i32& stage) {
     if(relocate(half_warp_entry) == 1) {
       // either in stage 2,3, or 4: check linked element
       u64 half_warp_link_entry = ring_buffer[pointer(half_warp_entry)];
@@ -652,9 +652,9 @@ struct HashMap {
         stage = 4;
       } else {
         // either stage 2 or 3, and we need to search forward to differentiate
-        insert_phase_2_determine_stage_search(half_lane_idx, half_lane_mask, half_warp_temp, stage, half_warp_link_entry)
+        insert_phase_2_determine_stage_search(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage, half_warp_link_entry);
       }
-    } else if(half_warp_pointer != 0){
+    } else if(pointer(half_warp_entry) != 0){
       stage = 1;
     } else {
       stage = 5;
@@ -662,7 +662,7 @@ struct HashMap {
 
   }
 
-  __device__ inline void insert_phase_2_determine_stage_search(i32& half_lane_idx, u32& half_lane_mask, u64& half_warp_temp, i32& stage, u64& half_warp_link_entry) {
+  __device__ inline void insert_phase_2_determine_stage_search(i32& half_lane_idx, u32& half_lane_mask, i32& slot, u64& half_warp_entry, u64& half_warp_temp, i32& half_warp_temp_idx, i32& stage, u64& half_warp_link_entry) {
     // Either stage 2 or 3: element has relocation bit, but its first linked element doesn't: find slot relocated element is supposed to go in
     i32 stride = hash_slot(key(half_warp_entry),c,d);
     i32 max_num_lines = GPLDA_HASH_MAX_NUM_LINES - key_distance(key(half_warp_entry), slot);
@@ -691,7 +691,7 @@ struct HashMap {
 
         // if pointers are present, follow them and check again
         ptr = false;
-        if(pointer(thread_table_insert_entry) != null_pointer()) {
+        if(pointer(thread_search_entry) != null_pointer()) {
           ptr = true;
           address = &ring_buffer[pointer(thread_search_entry)];
           thread_search_entry = *address;
@@ -731,7 +731,7 @@ struct HashMap {
     half_warp_new_entry = with_relocate(true,half_warp_entry);
   }
 
-  __device__ inline void insert_phase_2_stage_2(u64*& half_warp_address, u64& half_warp_entry, u64& half_warp_new_entry, i32& half_warp_entry_idx, u64& half_warp_temp) {
+  __device__ inline void insert_phase_2_stage_2(i32& half_lane_idx, u64*& half_warp_address, u64& half_warp_entry, u64& half_warp_new_entry, i32& half_warp_entry_idx, u64& half_warp_temp, i32& half_warp_temp_idx) {
     if(half_warp_temp == empty()) {
       half_warp_address = &data[half_warp_temp_idx];
       half_warp_new_entry = with_relocate(false,half_warp_entry);
@@ -837,19 +837,19 @@ struct HashMap {
       i32 half_warp_entry_idx;
       u64 half_warp_temp;
       i32 half_warp_temp_idx;
-      insert_phase_2_determine_index(half_lane_idx, half_lane_mask, slot, half_warp_address, half_warp_entry, half_warp_entry_idx);
+      insert_phase_2_determine_index(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_entry_idx);
 
       // determine stage
       i32 stage;
-      insert_phase_2_determine_stage(half_lane_idx, half_lane_mask, half_warp_temp, stage);
+      insert_phase_2_determine_stage(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage);
 
       // determine CAS target
       if(stage == 1) {
         insert_phase_2_stage_1(slot, half_warp_address, half_warp_entry, half_warp_new_entry, half_warp_entry_idx);
       } else if(stage == 2) {
-        insert_phase_2_stage_2(half_warp_address, half_warp_entry, half_warp_new_entry, half_warp_entry_idx, half_warp_temp);
+        insert_phase_2_stage_2(half_lane_idx, half_warp_address, half_warp_entry, half_warp_new_entry, half_warp_entry_idx, half_warp_temp, half_warp_temp_idx);
       } else if(stage == 3) {
-        insert_phase_2_stage_3(half_warp_address, half_warp_entry, half_warp_new_entry, half_warp_entry_idx, half_warp_temp);
+        insert_phase_2_stage_3(slot, half_warp_address, half_warp_entry, half_warp_new_entry, half_warp_entry_idx, half_warp_temp);
       } else if(stage == 4) {
         insert_phase_2_stage_4(slot, half_warp_address, half_warp_entry, half_warp_new_entry, half_warp_entry_idx, half_warp_temp);
       } else if(stage == 5) {
@@ -862,7 +862,7 @@ struct HashMap {
       // perform CAS
       i32 success;
       if(half_lane_idx == half_warp_entry_idx) {
-        u64 old = atomicCAS(half_warp_entry_address, half_warp_entry, half_warp_new_entry);
+        u64 old = atomicCAS(half_warp_address, half_warp_entry, half_warp_new_entry);
         success = (old == half_warp_entry);
       }
       success = __shfl(success, half_warp_entry_idx, warpSize/2);
