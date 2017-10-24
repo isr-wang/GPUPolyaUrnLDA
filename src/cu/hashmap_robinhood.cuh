@@ -143,12 +143,12 @@ struct HashMap {
       printf("hl:s\tr\tp\tk\tv\tis:st:d\n");
       for(u32 s = slot; s < slot + warpSize/2; ++s) {
         u64 entry = data[s % size];
-        printf("%d:%d\t%d\t%d\t%d\t%d\t", s % 16, s % size, relocate(entry), pointer(entry), key(entry), value(entry));
+        printf("%d:%d\t%d\t%d\t%d\t%ld\t", s % 16, s % size, relocate(entry), pointer(entry), key(entry), value(entry));
         if(entry != empty()) printf("%d:%d:%d", hash_slot(key(entry),a,b), hash_slot(key(entry),c,d), key_distance(key(entry), slot));
         while(pointer(entry) != null_pointer()) {
           i32 buffer_idx = pointer(entry);
           entry = ring_buffer[buffer_idx];
-          printf("\t-------->\t%d:%d\t%d\t%d\t%d\t%d\t", s % 16, buffer_idx, relocate(entry), pointer(entry), key(entry), value(entry));
+          printf("\t-------->\t%d:%d\t%d\t%d\t%d\t%ld\t", s % 16, buffer_idx, relocate(entry), pointer(entry), key(entry), value(entry));
           if(entry != empty()) printf("%d:%d:%d", hash_slot(key(entry),a,b), hash_slot(key(entry),c,d), key_distance(key(entry), slot));
         }
         printf("\n");
