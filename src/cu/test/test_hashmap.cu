@@ -81,11 +81,19 @@ __global__ void test_hash_map_insert_phase_1() {
 
 template<gplda::SynchronizationType sync_type>
 __global__ void test_hash_map_insert_phase_2_determine_index(void* map_storage, u32* error, curandStatePhilox4_32_10_t* rng) {
+  // variables
+  i32 half_lane_idx = threadIdx.x % (warpSize/2);
+  u32 half_lane_mask = 0x0000ffff << (((threadIdx.x % warpSize) / (warpSize / 2)) * (warpSize / 2));
+  i32 slot;
+  u64 half_warp_entry;
+  i32 half_warp_entry_idx;
+
+  // initialize
   __shared__ gplda::HashMap<sync_type> m[1];
   m->init(map_storage, 96, 96, 4, rng);
-
   m->a=26; m->b=1; m->c=30; m->d=13;
 
+  // pointer, no relocation bit
   if(threadIdx.x < 16) {
     m->data[16+threadIdx.x] = m->entry(false, m->null_pointer(), 3*threadIdx.x, 1);
   }
@@ -97,12 +105,7 @@ __global__ void test_hash_map_insert_phase_2_determine_index(void* map_storage, 
     m->data[20] = m->with_pointer(ptr, m->data[20]);
   }
   __syncthreads();
-
-  i32 half_lane_idx = threadIdx.x % (warpSize/2);
-  u32 half_lane_mask = 0x0000ffff << (((threadIdx.x % warpSize) / (warpSize / 2)) * (warpSize / 2));
-  i32 slot = 16;
-  u64 half_warp_entry;
-  i32 half_warp_entry_idx;
+  slot = 16;
   m->insert_phase_2_determine_index(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_entry_idx);
 
   if(half_warp_entry_idx != 4) {
@@ -111,16 +114,75 @@ __global__ void test_hash_map_insert_phase_2_determine_index(void* map_storage, 
     error[0] = 1;
   }
 
+  // no pointer, relocation bit
+  if(threadIdx.x < 16) {
+    m->data[16+threadIdx.x] = m->entry(false, m->null_pointer(), 3*threadIdx.x, 1);
+  }
+  __syncthreads();
+
+  if(threadIdx.x == 0) {
+    m->data[20] = m->with_relocate(true, m->data[20]);
+  }
+  __syncthreads();
+  slot = 16;
+  m->insert_phase_2_determine_index(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_entry_idx);
+
+  if(half_warp_entry_idx != 4) {
+    error[0] = 2;
+  } else if(half_warp_entry != m->data[20]) {
+    error[0] = 2;
+  }
+
+  // pointer and relocation bit
+  if(threadIdx.x < 16) {
+    m->data[16+threadIdx.x] = m->entry(false, m->null_pointer(), 3*threadIdx.x, 1);
+  }
+  __syncthreads();
+
+  if(threadIdx.x == 0) {
+    i32 ptr = m->ring_buffer_pop();
+    m->ring_buffer[ptr] = m->entry(false, m->null_pointer(), 48, 2);
+    m->data[20] = m->with_pointer(ptr, m->data[20]);
+
+    i32 ptr2 = m->ring_buffer_pop();
+    m->ring_buffer[ptr2] = m->entry(true, m->null_pointer(), 51, 2);
+    m->data[21] = m->with_relocate(true,m->with_pointer(ptr, m->data[21]));
+  }
+  __syncthreads();
+  slot = 16;
+  m->insert_phase_2_determine_index(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_entry_idx);
+
+  if(half_warp_entry_idx != 5) {
+    error[0] = 3;
+  } else if(half_warp_entry != m->data[21]) {
+    error[0] = 3;
+  }
+
   m->debug_print_slot(16,0,"test");
 }
+
+
+
+
+
 
 __global__ void test_hash_map_insert_phase_2_determine_stage_search() {
 
 }
 
+
+
+
+
+
 __global__ void test_hash_map_insert_phase_2_determine_stage() {
 
 }
+
+
+
+
+
 
 __global__ void test_hash_map_insert_phase_2_stage_1() {
 
@@ -195,6 +257,10 @@ __global__ void test_hash_map_accumulate2(void* map_storage, u32 total_map_size,
     }
   }
 }
+
+
+
+
 
 void test_hash_map_phase_2() {
   constexpr u32 max_size = 96;
