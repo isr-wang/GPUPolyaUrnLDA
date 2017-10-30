@@ -136,25 +136,22 @@ struct HashMap {
 
 
   #ifdef GPLDA_HASH_DEBUG
-  __device__ inline void debug_print_slot(u32 slot, u32 thread_idx, const char* title) {
-    if(threadIdx.x == thread_idx) {
-      printf(title);
-      printf("\n");
-      printf("hl:s\tr\tp\tk\tv\tis:st:d\n");
-      for(u32 s = slot; s < slot + warpSize/2; ++s) {
-        u64 entry = data[s % size];
-        printf("%d:%d\t%d\t%d\t%d\t%ld\t", s % 16, s % size, relocate(entry), pointer(entry), key(entry), value(entry));
+  __device__ inline void debug_print_slot(u32 slot) {
+    printf("\n");
+    printf("hl:s\tr\tp\tk\tv\tis:st:d\n");
+    for(u32 s = slot; s < slot + warpSize/2; ++s) {
+      u64 entry = data[s % size];
+      printf("%d:%d\t%d\t%d\t%d\t%ld\t", s % 16, s % size, relocate(entry), pointer(entry), key(entry), value(entry));
+      if(entry != empty()) printf("%d:%d:%d", hash_slot(key(entry),a,b), hash_slot(key(entry),c,d), key_distance(key(entry), slot));
+      while(pointer(entry) != null_pointer()) {
+        i32 buffer_idx = pointer(entry);
+        entry = ring_buffer[buffer_idx];
+        printf("\t-------->\t%d:%d\t%d\t%d\t%d\t%ld\t", s % 16, buffer_idx, relocate(entry), pointer(entry), key(entry), value(entry));
         if(entry != empty()) printf("%d:%d:%d", hash_slot(key(entry),a,b), hash_slot(key(entry),c,d), key_distance(key(entry), slot));
-        while(pointer(entry) != null_pointer()) {
-          i32 buffer_idx = pointer(entry);
-          entry = ring_buffer[buffer_idx];
-          printf("\t-------->\t%d:%d\t%d\t%d\t%d\t%ld\t", s % 16, buffer_idx, relocate(entry), pointer(entry), key(entry), value(entry));
-          if(entry != empty()) printf("%d:%d:%d", hash_slot(key(entry),a,b), hash_slot(key(entry),c,d), key_distance(key(entry), slot));
-        }
-        printf("\n");
       }
       printf("\n");
     }
+    printf("\n");
   }
   #endif
 
@@ -680,6 +677,7 @@ struct HashMap {
       // first, check the slot and possible pointers to see if element is there
       u32 found;
       u32 ptr;
+      i32 buffer_idx = -1;
       do {
         // if element is found, we are in Stage 3
         found = __ballot(key(half_warp_entry) == key(thread_search_entry)) & half_lane_mask;
@@ -693,7 +691,8 @@ struct HashMap {
         ptr = false;
         if(pointer(thread_search_entry) != null_pointer()) {
           ptr = true;
-          address = &ring_buffer[pointer(thread_search_entry)];
+          buffer_idx = pointer(thread_search_entry);
+          address = &ring_buffer[buffer_idx];
           thread_search_entry = *address;
         }
         ptr = __ballot(ptr) & half_lane_mask;
@@ -718,7 +717,12 @@ struct HashMap {
       if(evict != 0) {
         i32 evict_half_lane_idx = (__ffs(evict) - 1) % (warpSize/2);
         half_warp_temp = __shfl(thread_search_entry, evict_half_lane_idx, warpSize/2);
-        half_warp_temp_idx = search_slot + evict_half_lane_idx;
+        if(buffer_idx < 0) {
+          half_warp_temp_idx = search_slot + evict_half_lane_idx;
+        } else {
+          half_warp_temp_idx = -buffer_idx - 1;
+        }
+        half_warp_temp_idx = __shfl(half_warp_temp_idx, evict_half_lane_idx, warpSize/2);
         stage = 2;
         break;
       }
@@ -732,6 +736,9 @@ struct HashMap {
   }
 
   __device__ inline void insert_phase_2_stage_2(i32& half_lane_idx, u64*& half_warp_address, u64& half_warp_entry, u64& half_warp_new_entry, i32& half_warp_entry_idx, u64& half_warp_temp, i32& half_warp_temp_idx) {
+    // Stage 2: we have a relocation bit, but it has not been moved forward yet
+    // half_warp_temp: value found by insert_phase_2_determine_stage_search
+    // half_warp_temp_idx: index of value found by insert_phase_2_determine_stage_search
     if(half_warp_temp == empty()) {
       half_warp_address = &data[half_warp_temp_idx];
       half_warp_new_entry = with_relocate(false,half_warp_entry);
@@ -747,7 +754,11 @@ struct HashMap {
       buffer_idx = __shfl(buffer_idx, 0, warpSize/2);
 
       // prepare entry for insertion
-      half_warp_address = &data[half_warp_temp_idx];
+      if(half_warp_temp_idx < 0) {
+        half_warp_address = &ring_buffer[-half_warp_temp_idx - 1];
+      } else {
+        half_warp_address = &data[half_warp_temp_idx];
+      }
       half_warp_entry = half_warp_temp; // same as dereferencing
       half_warp_new_entry = with_pointer(buffer_idx, half_warp_temp);
       half_warp_entry_idx = 0;
@@ -762,7 +773,8 @@ struct HashMap {
   }
 
   __device__ inline void insert_phase_2_stage_3(i32& slot, u64*& half_warp_address, u64& half_warp_entry, u64& half_warp_new_entry, i32& half_warp_entry_idx, u64& half_warp_temp) {
-    // Stage 3: we have a relocation bit, it has been moved forward, but first linked element has no relocation bit: set relocation bit on linked element
+    // Stage 3: we have a relocation bit, it has been moved forward, but first linked element has no relocation bit - set relocation bit on linked element
+    // half_warp_temp: value in ring buffer, which needs to have its relocation bit set
     half_warp_address = &ring_buffer[pointer(half_warp_entry)];
     half_warp_entry = half_warp_temp; // same as dereferencing above address
     half_warp_new_entry = with_relocate(true, half_warp_entry);
@@ -770,6 +782,7 @@ struct HashMap {
 
   __device__ inline void insert_phase_2_stage_4(i32& slot, u64*& half_warp_address, u64& half_warp_entry, u64& half_warp_new_entry, i32& half_warp_entry_idx, u64& half_warp_temp) {
       // Stage 4: first linked element has a relocation bit: remove relocation bit, move it and advance to next slot
+      // half_warp_temp: value in ring buffer, which will replace table entry
       half_warp_address = &data[slot + half_warp_entry_idx];
       half_warp_new_entry = with_relocate(false, half_warp_temp);
   }

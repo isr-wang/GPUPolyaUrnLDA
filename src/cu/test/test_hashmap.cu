@@ -90,7 +90,7 @@ __global__ void test_hash_map_insert_phase_2_determine_index(void* map_storage, 
 
   // initialize
   __shared__ gplda::HashMap<sync_type> m[1];
-  m->init(map_storage, 96, 96, 4, rng);
+  m->init(map_storage, 204, 96, 4, rng);
   m->a=26; m->b=1; m->c=30; m->d=13;
 
   // pointer, no relocation bit
@@ -111,7 +111,7 @@ __global__ void test_hash_map_insert_phase_2_determine_index(void* map_storage, 
   if(half_warp_entry_idx != 4) {
     error[0] = 1;
   } else if(half_warp_entry != m->data[20]) {
-    error[0] = 1;
+    error[0] = 2;
   }
 
   // no pointer, relocation bit
@@ -128,9 +128,9 @@ __global__ void test_hash_map_insert_phase_2_determine_index(void* map_storage, 
   m->insert_phase_2_determine_index(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_entry_idx);
 
   if(half_warp_entry_idx != 4) {
-    error[0] = 2;
+    error[0] = 3;
   } else if(half_warp_entry != m->data[20]) {
-    error[0] = 2;
+    error[0] = 4;
   }
 
   // pointer and relocation bit
@@ -153,20 +153,177 @@ __global__ void test_hash_map_insert_phase_2_determine_index(void* map_storage, 
   m->insert_phase_2_determine_index(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_entry_idx);
 
   if(half_warp_entry_idx != 5) {
-    error[0] = 3;
+    error[0] = 5;
   } else if(half_warp_entry != m->data[21]) {
-    error[0] = 3;
+    error[0] = 6;
   }
-
-  m->debug_print_slot(16,0,"test");
 }
 
 
 
 
 
+template<gplda::SynchronizationType sync_type>
+__global__ void test_hash_map_insert_phase_2_determine_stage_search(void* map_storage, u32* error, curandStatePhilox4_32_10_t* rng) {
+  // variables
+  i32 half_lane_idx = threadIdx.x % (warpSize/2);
+  u32 half_lane_mask = 0x0000ffff << (((threadIdx.x % warpSize) / (warpSize / 2)) * (warpSize / 2));
+  i32 slot;
+  u64 half_warp_entry;
+  u64 half_warp_temp;
+  i32 half_warp_temp_idx;
+  i32 stage;
+  u64 half_warp_link_entry;
 
-__global__ void test_hash_map_insert_phase_2_determine_stage_search() {
+  // initialize
+  __shared__ gplda::HashMap<sync_type> m[1];
+  m->init(map_storage, 204, 96, 4, rng);
+  m->a=26; m->b=1; m->c=30; m->d=13;
+  half_warp_entry = m->entry(false, m->null_pointer(), 0, 1);
+  half_warp_link_entry = m->entry(false, m->null_pointer(), 96, 2);
+  slot = 16;
+
+
+  // stage 2: entry not present, will go in queue
+  if(threadIdx.x < 16) {
+    m->data[16+threadIdx.x] = m->entry(false, m->null_pointer(), 3*threadIdx.x, 1);
+    m->data[32+threadIdx.x] = m->entry(false, m->null_pointer(), 48 + 3*threadIdx.x, 1);
+    m->data[48+threadIdx.x] = m->entry(false, m->null_pointer(), 1 + 3*threadIdx.x, 1);
+  }
+  __syncthreads();
+
+  if(threadIdx.x == 0) {
+    i32 ptr = m->ring_buffer_pop();
+    m->ring_buffer[ptr] = m->entry(false, m->null_pointer(), 96, 2); // will evict slot 48
+    m->data[16] = m->with_pointer(ptr, m->with_relocate(true,m->data[16]));
+  }
+  __syncthreads();
+  m->insert_phase_2_determine_stage_search(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage, half_warp_link_entry);
+
+  if(stage != 2) {
+    error[0] = 1;
+  } else if(half_warp_temp != m->data[48]) {
+    error[0] = 2;
+  } else if(half_warp_temp_idx != 48) {
+    error[0] = 3;
+  }
+
+  stage = -1;
+  half_warp_temp = 0;
+  half_warp_temp_idx = -1;
+  if(threadIdx.x < 16) {
+    m->data[16+threadIdx.x] = m->empty();
+    m->data[32+threadIdx.x] = m->empty();
+    m->data[48+threadIdx.x] = m->empty();
+  }
+
+
+
+  // stage 2: entry not present, will go in empty slot
+  if(threadIdx.x < 16) {
+    m->data[16+threadIdx.x] = m->entry(false, m->null_pointer(), 3*threadIdx.x, 1);
+  }
+  __syncthreads();
+
+  if(threadIdx.x == 0) {
+    i32 ptr = m->ring_buffer_pop();
+    m->ring_buffer[ptr] = m->entry(false, m->null_pointer(), 48, 2);
+    m->data[16] = m->with_pointer(ptr, m->with_relocate(true,m->data[16]));
+  }
+  __syncthreads();
+  m->insert_phase_2_determine_stage_search(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage, half_warp_link_entry);
+
+  if(stage != 2) {
+    error[0] = 4;
+  } else if(half_warp_temp != m->empty()) {
+    error[0] = 5;
+  } else if(half_warp_temp_idx != 32/*empty slot's index*/) {
+    error[0] = 6;
+  }
+
+  stage = -1;
+  half_warp_temp = 0;
+  half_warp_temp_idx = -1;
+  if(threadIdx.x < 16) {
+    m->data[16+threadIdx.x] = m->empty();
+    m->data[32+threadIdx.x] = m->empty();
+    m->data[48+threadIdx.x] = m->empty();
+  }
+
+
+
+  // stage 3: entry in queue
+  if(threadIdx.x < 16) {
+    m->data[16+threadIdx.x] = m->entry(false, m->null_pointer(), 3*threadIdx.x, 1);
+    m->data[32+threadIdx.x] = m->entry(false, m->null_pointer(), 48 + 3*threadIdx.x, 1);
+    m->data[48+threadIdx.x] = m->entry(false, m->null_pointer(), 1 + 3*threadIdx.x, 1);
+  }
+  __syncthreads();
+
+  if(threadIdx.x == 0) {
+    i32 ptr = m->ring_buffer_pop();
+    m->ring_buffer[ptr] = m->entry(false, m->null_pointer(), 96, 2); // will evict slot 48
+    m->data[16] = m->with_pointer(ptr, m->with_relocate(true,m->data[16]));
+
+    i32 ptr2 = m->ring_buffer_pop();
+    m->ring_buffer[ptr2] = m->with_pointer(m->null_pointer(), m->with_relocate(false, m->data[16]));
+    m->data[48] = m->with_pointer(ptr2, m->data[48]);
+  }
+  __syncthreads();
+  m->insert_phase_2_determine_stage_search(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage, half_warp_link_entry);
+
+  if(stage != 3) {
+    error[0] = 7;
+  } else if(half_warp_temp != m->ring_buffer[m->pointer(m->data[16])]) {
+    error[0] = 8;
+  } else if(half_warp_temp_idx != -1) {
+    error[0] = 9;
+  }
+
+  stage = -1;
+  half_warp_temp = 0;
+  half_warp_temp_idx = -1;
+  if(threadIdx.x < 16) {
+    m->data[16+threadIdx.x] = m->empty();
+    m->data[32+threadIdx.x] = m->empty();
+    m->data[48+threadIdx.x] = m->empty();
+  }
+
+
+
+  // stage 3: entry in table
+  if(threadIdx.x < 16) {
+    m->data[16+threadIdx.x] = m->entry(false, m->null_pointer(), 3*threadIdx.x, 1);
+  }
+  __syncthreads();
+
+  if(threadIdx.x == 0) {
+    i32 ptr = m->ring_buffer_pop();
+    m->ring_buffer[ptr] = m->entry(false, m->null_pointer(), 96, 2); // will evict slot 48
+    m->data[16] = m->with_pointer(ptr, m->with_relocate(true,m->data[16]));
+    m->data[32] = m->with_pointer(m->null_pointer(), m->with_relocate(false, m->data[16]));
+  }
+  __syncthreads();
+  m->insert_phase_2_determine_stage_search(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage, half_warp_link_entry);
+
+  if(stage != 3) {
+    error[0] = 10;
+  } else if(half_warp_temp != m->ring_buffer[m->pointer(m->data[16])]) {
+    error[0] = 11;
+  } else if(half_warp_temp_idx != -1) {
+    error[0] = 12;
+  }
+
+  stage = -1;
+  half_warp_temp = 0;
+  half_warp_temp_idx = -1;
+  if(threadIdx.x < 16) {
+    m->data[16+threadIdx.x] = m->empty();
+    m->data[32+threadIdx.x] = m->empty();
+    m->data[48+threadIdx.x] = m->empty();
+  }
+
+
 
 }
 
@@ -282,6 +439,13 @@ void test_hash_map_phase_2() {
 
   // phase 2 determine index
   test_hash_map_insert_phase_2_determine_index<gplda::warp><<<1,warpSize>>>(map, out, rng);
+  cudaDeviceSynchronize() >> GPLDA_CHECK;
+
+  cudaMemcpy(&out_host, out, sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
+  assert(out_host == 0);
+
+  // phase 2 determine stage search
+  test_hash_map_insert_phase_2_determine_stage_search<gplda::warp><<<1,warpSize>>>(map, out, rng);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 
   cudaMemcpy(&out_host, out, sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
