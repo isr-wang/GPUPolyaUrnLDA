@@ -633,14 +633,14 @@ struct HashMap {
     } else if(half_warp_pointer != 0) {
       half_warp_entry_idx = (__ffs(half_warp_pointer) - 1) % (warpSize/2); // __ffs uses 1-based indexing
     } else {
-      half_warp_entry_idx = -1; // TODO: is this broken?
+      half_warp_entry_idx = 0;
     }
 
     half_warp_entry = __shfl(thread_table_entry, half_warp_entry_idx, warpSize/2);
   }
 
   __device__ inline void insert_phase_2_determine_stage(i32& half_lane_idx, u32& half_lane_mask, i32& slot, u64& half_warp_entry, u64& half_warp_temp, i32& half_warp_temp_idx, i32& stage) {
-    if(relocate(half_warp_entry) == 1) {
+    if(relocate(half_warp_entry) == true) {
       // either in stage 2,3, or 4: check linked element
       u64 half_warp_link_entry = ring_buffer[pointer(half_warp_entry)];
 
@@ -651,7 +651,7 @@ struct HashMap {
         // either stage 2 or 3, and we need to search forward to differentiate
         insert_phase_2_determine_stage_search(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage, half_warp_link_entry);
       }
-    } else if(pointer(half_warp_entry) != 0){
+    } else if(pointer(half_warp_entry) != null_pointer()){
       stage = 1;
     } else {
       stage = 5;
