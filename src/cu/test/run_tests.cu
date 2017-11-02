@@ -10,6 +10,8 @@ namespace gplda_test {
 void run_tests() {
   std::cout << "running tests" << std::endl;
 
+  std::cout << "testing hash map components" << std::endl;
+  test_hash_map_phase_2();
   std::cout << "testing hash_map" << std::endl;
   test_hash_map();
 
