@@ -66,10 +66,11 @@ struct HashMap {
     asm("bfi.b64 %0, %1, %2, %3, %4;" : "=l"(ret) : "l"(y), "l"(x), "r"(bit_start), "r"(num_bits));
   }
 
-  __device__ __forceinline__ u64 entry(u32 relocate, u32 pointer, u32 key, u64 value) {
+  __device__ __forceinline__ u64 entry(u32 relocate, u32 resize, u32 pointer, u32 key, u64 value) {
     u64 ret;
-    bfi_b64(ret, value, key, 36, 20);
-    bfi_b64(ret, ret, pointer, 56, 7);
+    bfi_b64(ret, value, key, 35, 20);
+    bfi_b64(ret, ret, pointer, 55, 7);
+    bfi_b64(ret, ret, resize, 62, 1);
     bfi_b64(ret, ret, relocate, 63, 1);
     return ret;
   }
@@ -79,18 +80,23 @@ struct HashMap {
     return entry;
   }
 
+  __device__ __forceinline__ u64 with_resize(u32 resize, u64 entry) {
+    bfi_b64(entry, entry, resize, 62, 1);
+    return entry;
+  }
+
   __device__ __forceinline__ u64 with_pointer(u32 pointer, u64 entry) {
-    bfi_b64(entry, entry, pointer, 56, 7);
+    bfi_b64(entry, entry, pointer, 55, 7);
     return entry;
   }
 
   __device__ __forceinline__ u64 with_key(u32 key, u64 entry) {
-    bfi_b64(entry, entry, key, 36, 20);
+    bfi_b64(entry, entry, key, 35, 20);
     return entry;
   }
 
   __device__ __forceinline__ u64 with_value(u64 value, u64 entry) {
-    bfi_b64(entry, entry, value, 0, 36);
+    bfi_b64(entry, entry, value, 0, 35);
     return entry;
   }
 
@@ -98,36 +104,36 @@ struct HashMap {
     return bfe_b64(entry, 63, 1);
   }
 
+  __device__ __forceinline__ u32 resize(u64 entry) {
+    return bfe_b64(entry, 62, 1);
+  }
+
   __device__ __forceinline__ u32 pointer(u64 entry) {
-    return bfe_b64(entry, 56, 7);
+    return bfe_b64(entry, 55, 7);
   }
 
   __device__ __forceinline__ u32 key(u64 entry) {
-    return bfe_b64(entry, 36, 20);
+    return bfe_b64(entry, 35, 20);
   }
 
   __device__ __forceinline__ u64 value(u64 entry) {
-    return bfe_b64(entry, 0, 36);
+    return bfe_b64(entry, 0, 35);
   }
 
   __device__ __forceinline__ static constexpr u32 null_pointer() {
     return 0x7f;
   }
 
-  __device__ __forceinline__ static constexpr u32 resize_pointer() {
-    return 0x7e;
-  }
-
   __device__ __forceinline__ static constexpr u32 empty_key() {
     return 0xfffff;
   }
 
-  __device__ __forceinline__ static constexpr u64 empty_resize() {
-    return (((u64) resize_pointer()) << 56) | (((u64) empty_key()) << 36);
+  __device__ __forceinline__ static constexpr u64 deleted_value() {
+    return 0x7ffffffff;
   }
 
   __device__ __forceinline__ static constexpr u64 empty() {
-    return (((u64) null_pointer()) << 56) | (((u64) empty_key()) << 36);
+    return (((u64) null_pointer()) << 55) | (((u64) empty_key()) << 35);
   }
 
 
@@ -303,47 +309,31 @@ struct HashMap {
     sync();
   }
 
+  __device__ inline void resize_table() {
+    // compute constants
+    i32 lane_idx = threadIdx.x % warpSize;
+    i32 half_lane_idx = threadIdx.x % (warpSize / 2);
 
+    // if triggering resize, generate new hash functions and set the new size
+    if(lane_idx == 0 && rebuild_size == 0) {
+      float4 r = curand_uniform4(rng);
+      atomicCAS(&rebuild_a, a, __float2uint_rz(size * r.w));
+      atomicCAS(&rebuild_b, b, __float2uint_rz(size * r.x));
+      atomicCAS(&rebuild_c, c, __float2uint_rz(size * r.y));
+      atomicCAS(&rebuild_d, d, __float2uint_rz(size * r.z));
+      atomicCAS(&rebuild_size, 0, umin(max_size, __float2uint_rz(size * GPLDA_HASH_GROWTH_RATE) + warpSize));
+    }
 
+    // move entries
+    resize_move(lane_idx, half_lane_idx);
 
-  __device__ inline void trigger_resize(u32 key, u32 diff) {
-    // if(threadIdx.x % warpSize == 0) {
-    //   // generate new hash functions and set the new size
-    //   float4 r = curand_uniform4(rng);
-    //   atomicCAS(&rebuild_a, a, __float2uint_rz(size * r.w));
-    //   atomicCAS(&rebuild_b, b, __float2uint_rz(size * r.x));
-    //   atomicCAS(&rebuild_c, c, __float2uint_rz(size * r.y));
-    //   atomicCAS(&rebuild_d, d, __float2uint_rz(size * r.z));
-    //   atomicCAS(&rebuild_size, 0, umin(max_size, __float2uint_rz(size * GPLDA_HASH_GROWTH_RATE) + warpSize));
-    // }
-    //
-    // // place keys that collided first
-    // attempt_insertion(key,diff);
-    //
-    // // resolve remaining keys
-    // join_resize();
-  }
+    // clear any unfinished entries
+    resize_clear(lane_idx, half_lane_idx);
 
-  __device__ inline void join_resize() {
-    // // if resize is not in progress, return immediately
-    // if(__shfl(rebuild_size, 0) == 0) {
-    //   return;
-    // }
-    //
-    // // compute constants
-    // i32 lane_idx = threadIdx.x % warpSize;
-    // i32 half_lane_idx = threadIdx.x % (warpSize / 2);
-    //
-    // // move entries
-    // resize_move(lane_idx, half_lane_idx);
-    //
-    // // clear any unfinished entries
-    // resize_clear(lane_idx, half_lane_idx);
-    //
-    // // if everything has been inserted, swap pointers and complete resize
-    // if(lane_idx == 0 && rebuild_check + 1 >= rebuild_size) {
-    //   // TODO: last warp sets old memory to empty
-    // }
+    // if everything has been inserted, swap pointers and complete resize
+    if(lane_idx == 0 && rebuild_check + 1 >= rebuild_size) {
+      // TODO: last warp sets old memory to empty
+    }
   }
 
 
@@ -352,85 +342,88 @@ struct HashMap {
 
 
   __device__ inline void resize_move(i32& lane_idx, i32& half_lane_idx) {
-    // // iterate over map and place remaining keys
-    // u32 idx = __shfl(rebuild_idx, 0);
-    // while(idx < rebuild_size) {
-    //   // increment index
-    //   if(lane_idx == 0) {
-    //     idx = atomicAdd(&rebuild_idx, 2);
-    //   }
-    //   idx = __shfl(idx, 0);
-    //   if(lane_idx >= warpSize/2) {
-    //     idx += 1;
-    //   }
-    //
-    //   // if index exceeds table size, exit
-    //   if(idx < size) {
-    //     // repeat until pointers have been exhausted
-    //     i32 repeat;
-    //     do {
-    //       // clear repeat value on all threads
-    //       repeat = false;
-    //
-    //       // get entry
-    //       u64 thread_entry;
-    //       u64 thread_previous_entry;
-    //       u64* address;
-    //       u64* previous_address;
-    //       i32 address_buffer = null_pointer();
-    //       if(half_lane_idx == 0) {
-    //         // follow pointers
-    //         address = &data[idx];
-    //         thread_entry = *address;
-    //         while(pointer(thread_entry) != null_pointer()) {
-    //           address_buffer = pointer(thread_entry);
-    //           previous_address = address;
-    //           thread_previous_entry = thread_entry;
-    //           address = &ring_buffer[address_buffer];
-    //           thread_entry = *address;
-    //         };
-    //
-    //         // swap in new element
-    //         u64 old = atomicCAS(address, thread_entry, with_pointer(resize_pointer(), thread_entry));
-    //
-    //         // don't insert anything if swap failed
-    //         if(old != thread_entry) {
-    //           thread_entry = empty();
-    //         }
-    //       }
-    //
-    //       // broadcast thread_entry to entire half warp
-    //       thread_entry = __shfl(thread_entry, 0, warpSize/2);
-    //
-    //       // perform insertion
-    //       attempt_insertion(key(thread_entry), value(thread_entry));
-    //
-    //       // clear element
-    //       if(half_lane_idx == 0 && thread_entry != empty()) {
-    //         // determine whether element was in ring buffer or in table
-    //         if(address_buffer != null_pointer()) {
-    //           // if element was in ring buffer, unlink it, and then return it
-    //           u64 old = atomicCAS(previous_address, thread_previous_entry, with_pointer(null_pointer(), thread_previous_entry));
-    //
-    //           // return to ring buffer, as long as unlinking succeeded, else another thread already did that
-    //           if(old == thread_previous_entry) {
-    //             ring_buffer_push(address_buffer);
-    //           }
-    //
-    //           // ensure we don't stop to the next slot in the table
-    //           repeat = true;
-    //         } else {
-    //           // no need to unlink anything because entry was in the table: set it to empty
-    //           atomicCAS(address, thread_entry, empty_resize()); // no need to check for failure: only possible because another thread did it first
-    //         }
-    //
-    //       }
-    //     } while(repeat != 0);
-    //   }
-    // };
+    // iterate over map and place remaining keys
+    u32 idx = __shfl(rebuild_idx, 0);
+    while(idx < rebuild_size) {
+      // increment index
+      if(lane_idx == 0) {
+        idx = atomicAdd(&rebuild_idx, 2);
+      }
+      idx = __shfl(idx, 0);
+      if(lane_idx >= warpSize/2) {
+        idx += 1;
+      }
+
+      // if index exceeds table size, exit
+      if(idx < size) {
+        // repeat until pointers have been exhausted
+        i32 repeat;
+        do {
+          // clear repeat value on all threads
+          repeat = false;
+
+          // // get entry
+          // u64 thread_entry;
+          // u64 thread_previous_entry;
+          // u64* address;
+          // u64* previous_address;
+          // i32 address_buffer = null_pointer();
+          // if(half_lane_idx == 0) {
+          //   // follow pointers
+          //   address = &data[idx];
+          //   thread_entry = *address;
+          //   while(pointer(thread_entry) != null_pointer()) {
+          //     address_buffer = pointer(thread_entry);
+          //     previous_address = address;
+          //     thread_previous_entry = thread_entry;
+          //     address = &ring_buffer[address_buffer];
+          //     thread_entry = *address;
+          //   };
+          //
+          //   // swap in new element
+          //   u64 old = atomicCAS(address, thread_entry, with_pointer(resize_pointer(), thread_entry));
+          //
+          //   // don't insert anything if swap failed
+          //   if(old != thread_entry) {
+          //     thread_entry = empty();
+          //   }
+          // }
+          //
+          // // broadcast thread_entry to entire half warp
+          // thread_entry = __shfl(thread_entry, 0, warpSize/2);
+          //
+          // // perform insertion phase 1 and 2
+          //
+          // // clear element
+          // if(half_lane_idx == 0 && thread_entry != empty()) {
+          //   // determine whether element was in ring buffer or in table
+          //   if(address_buffer != null_pointer()) {
+          //     // if element was in ring buffer, unlink it, and then return it
+          //     u64 old = atomicCAS(previous_address, thread_previous_entry, with_pointer(null_pointer(), thread_previous_entry));
+          //
+          //     // return to ring buffer, as long as unlinking succeeded, else another thread already did that
+          //     if(old == thread_previous_entry) {
+          //       ring_buffer_push(address_buffer);
+          //     }
+          //
+          //     // ensure we don't stop to the next slot in the table
+          //     repeat = true;
+          //   } else {
+          //     // no need to unlink anything because entry was in the table: set it to empty
+          //     atomicCAS(address, thread_entry, empty_resize()); // no need to check for failure: only possible because another thread did it first
+          //   }
+          //
+          // }
+        } while(repeat != 0);
+      }
+    };
   }
 
 
+  __device__ inline void resize_move_slot(i32& lane_idx, i32& half_lane_idx, i32& idx) {
+    //
+
+  }
 
 
 
@@ -505,7 +498,7 @@ struct HashMap {
 
   __device__ inline void insert_phase_1(u32& half_warp_key, i32& diff, i32& lane_idx, i32& half_lane_idx, u32& half_lane_mask, i32& insert_failed, i32& slot, i32& stride) {
     // build entry to be inserted and shuffle to entire half warp
-    u64 half_warp_entry = __shfl(entry(false,null_pointer(),half_warp_key,max(0,diff)), 0, warpSize/2);
+    u64 half_warp_entry = __shfl(entry(false,false,null_pointer(),half_warp_key,max(0,diff)), 0, warpSize/2);
 
     // find slot and perform insertion
     for(i32 i = 0; i < GPLDA_HASH_MAX_NUM_LINES; ++i) {
@@ -859,7 +852,7 @@ struct HashMap {
       // determine stage
       i32 stage;
       insert_phase_2_determine_stage(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage);
-      
+
       // determine CAS target
       if(stage == 1) {
         insert_phase_2_stage_1(slot, half_warp_address, half_warp_entry, half_warp_new_entry, half_warp_entry_idx);
@@ -923,16 +916,16 @@ struct HashMap {
       do {
         insert_failed = false;
         insert_phase_1(half_warp_key, diff, lane_idx, half_lane_idx, half_lane_mask, insert_failed, slot, stride);
-        if(insert_failed) {
-          join_resize();
+        if(__any(insert_failed)) {
+          resize_table();
         }
       } while(insert_failed == true);
 
       // for Phase 2, resize and exit if failed
       insert_failed = false;
       insert_phase_2(half_lane_idx, half_lane_mask, insert_failed, slot, stride);
-      if(insert_failed) {
-        join_resize();
+      if(__any(insert_failed)) {
+        resize_table();
       }
     }
   }
