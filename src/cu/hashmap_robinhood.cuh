@@ -311,6 +311,7 @@ struct HashMap {
     // compute constants
     i32 lane_idx = threadIdx.x % warpSize;
     i32 half_lane_idx = threadIdx.x % (warpSize / 2);
+    u32 half_lane_mask = 0x0000ffff << (((threadIdx.x % warpSize) / (warpSize / 2)) * (warpSize / 2));
 
     // if triggering resize, generate new hash functions and set the new size
     if(lane_idx == 0 && rebuild_size == 0) {
@@ -323,7 +324,7 @@ struct HashMap {
     }
 
     // move entries
-    resize_move(lane_idx, half_lane_idx);
+    resize_move(lane_idx, half_lane_idx, half_lane_mask);
 
     // clear any unfinished entries
     resize_clear(lane_idx, half_lane_idx);
@@ -337,9 +338,20 @@ struct HashMap {
 
 
 
+  __device__ __forceinline__ i32 resize_determine_step(u64 entry) {
+    if(resize(entry) == true) {
+      if(value(entry) == deleted_value()) {
+        return 3;
+      } else {
+        // perform stage 1 search in new table
+        return 1;
+      }
+    } else {
+      return 0;
+    }
+  }
 
-
-  __device__ inline void resize_move(i32& lane_idx, i32& half_lane_idx) {
+  __device__ inline void resize_move(i32 lane_idx, i32 half_lane_idx, u32 half_lane_mask) {
     // iterate over map and place remaining keys
     u32 idx = __shfl(rebuild_idx, 0);
     while(idx < rebuild_size) {
@@ -352,75 +364,81 @@ struct HashMap {
         idx += 1;
       }
 
-      // if index exceeds table size, exit
+      // if index is valid, move to new slot
       if(idx < size) {
-        // repeat until pointers have been exhausted
-        i32 repeat;
-        do {
-          // clear repeat value on all threads
-          repeat = false;
-
-          // // get entry
-          // u64 thread_entry;
-          // u64 thread_previous_entry;
-          // u64* address;
-          // u64* previous_address;
-          // i32 address_buffer = null_pointer();
-          // if(half_lane_idx == 0) {
-          //   // follow pointers
-          //   address = &data[idx];
-          //   thread_entry = *address;
-          //   while(pointer(thread_entry) != null_pointer()) {
-          //     address_buffer = pointer(thread_entry);
-          //     previous_address = address;
-          //     thread_previous_entry = thread_entry;
-          //     address = &ring_buffer[address_buffer];
-          //     thread_entry = *address;
-          //   };
-          //
-          //   // swap in new element
-          //   u64 old = atomicCAS(address, thread_entry, with_pointer(resize_pointer(), thread_entry));
-          //
-          //   // don't insert anything if swap failed
-          //   if(old != thread_entry) {
-          //     thread_entry = empty();
-          //   }
-          // }
-          //
-          // // broadcast thread_entry to entire half warp
-          // thread_entry = __shfl(thread_entry, 0, warpSize/2);
-          //
-          // // perform insertion phase 1 and 2
-          //
-          // // clear element
-          // if(half_lane_idx == 0 && thread_entry != empty()) {
-          //   // determine whether element was in ring buffer or in table
-          //   if(address_buffer != null_pointer()) {
-          //     // if element was in ring buffer, unlink it, and then return it
-          //     u64 old = atomicCAS(previous_address, thread_previous_entry, with_pointer(null_pointer(), thread_previous_entry));
-          //
-          //     // return to ring buffer, as long as unlinking succeeded, else another thread already did that
-          //     if(old == thread_previous_entry) {
-          //       ring_buffer_push(address_buffer);
-          //     }
-          //
-          //     // ensure we don't stop to the next slot in the table
-          //     repeat = true;
-          //   } else {
-          //     // no need to unlink anything because entry was in the table: set it to empty
-          //     atomicCAS(address, thread_entry, empty_resize()); // no need to check for failure: only possible because another thread did it first
-          //   }
-          //
-          // }
-        } while(repeat != 0);
+        resize_move_slot(half_lane_idx, half_lane_mask, idx);
       }
     };
   }
 
 
-  __device__ inline void resize_move_slot(i32& lane_idx, i32& half_lane_idx, i32& idx) {
-    //
+  __device__ inline void resize_move_slot(i32 half_lane_idx, u32 half_lane_mask, i32 idx) {
+    // repeat until pointers have been exhausted
+    i32 finished;
+    do {
+      // clear repeat value on all threads
+      finished = false;
 
+      // get entry
+      u64 half_warp_entry;
+      u64* address;
+      if(half_lane_idx == 0) {
+        // read value and determine current step
+        address = &data[idx];
+        half_warp_entry = *address;
+
+        // follow pointers
+        u64 half_warp_previous_entry;
+        u64* previous_address;
+        while(pointer(half_warp_entry) != null_pointer()) {
+          previous_address = address;
+          half_warp_previous_entry = half_warp_entry;
+          address = &ring_buffer[pointer(half_warp_entry)];
+          half_warp_entry = *address;
+
+          // if we found a completed element, go back a step
+          if(resize(half_warp_entry) == true && value(half_warp_entry) == deleted_value()) {
+            address = previous_address;
+            half_warp_entry = half_warp_previous_entry;
+            break;
+          }
+        };
+      }
+
+      // broadcast thread_entry to entire half warp
+      half_warp_entry = __shfl(half_warp_entry, 0, warpSize/2);
+      i32 step = resize_determine_step(half_warp_entry);
+
+      i32 half_warp_new_entry;
+      if(step == 0) {
+        // set the resize bit
+        half_warp_new_entry = with_resize(true, half_warp_entry);
+      } else if(step == 1) {
+        // perform phase 1 insertion into new table
+      } else if(step == 2){
+        // set value in old table to deleted
+      } else {
+        // move on to the next index
+        finished = true;
+      }
+
+      // swap in new value
+      i32 success;
+      if(!finished) {
+        if(half_lane_idx == 0) {
+        u64 old = atomicCAS(address, half_warp_entry, half_warp_new_entry);
+        success = (old == half_warp_entry);
+        }
+        success = __shfl(success, 0, warpSize/2);
+      }
+
+      if(step == 1 && success) {
+        // perform phase 2 resolve for new table
+      }
+
+      // ensure warp advances together
+      finished = __ballot(finished) & half_lane_mask;
+    } while(finished != 0);
   }
 
 
