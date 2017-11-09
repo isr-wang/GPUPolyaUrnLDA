@@ -512,7 +512,7 @@ struct HashMap {
 
 
 
-  __device__ inline void insert_phase_1(u32& half_warp_key, i32& diff, i32& lane_idx, i32& half_lane_idx, u32& half_lane_mask, i32& insert_failed, i32& slot, i32& stride) {
+  __device__ inline void insert_phase_1(u32 half_warp_key, i32 diff, i32 lane_idx, i32 half_lane_idx, u32 half_lane_mask, i32& insert_failed, i32& slot, i32 stride) {
     // build entry to be inserted and shuffle to entire half warp
     u64 half_warp_entry = __shfl(entry(false,false,null_pointer(),half_warp_key,max(0,diff)), 0, warpSize/2);
 
@@ -635,7 +635,7 @@ struct HashMap {
 
 
 
-  __device__ inline void insert_phase_2_determine_index(i32& half_lane_idx, u32& half_lane_mask, i32& slot, u64& half_warp_entry, i32& half_warp_entry_idx) {
+  __device__ inline void insert_phase_2_determine_index(i32 half_lane_idx, u32& half_lane_mask, i32 slot, u64& half_warp_entry, i32& half_warp_entry_idx) {
     // load entry from table
     u64 thread_table_entry = data[slot + half_lane_idx];
     u32 half_warp_relocation = __ballot(relocate(thread_table_entry) != 0) & half_lane_mask;
@@ -652,7 +652,7 @@ struct HashMap {
     half_warp_entry = __shfl(thread_table_entry, half_warp_entry_idx, warpSize/2);
   }
 
-  __device__ inline void insert_phase_2_determine_stage(i32& half_lane_idx, u32& half_lane_mask, i32& slot, u64& half_warp_entry, u64& half_warp_temp, i32& half_warp_temp_idx, i32& stage) {
+  __device__ inline void insert_phase_2_determine_stage(i32 half_lane_idx, u32 half_lane_mask, i32 slot, u64 half_warp_entry, u64& half_warp_temp, i32& half_warp_temp_idx, i32& stage) {
     if(relocate(half_warp_entry) == true) {
       // either in stage 2,3, or 4: check linked element
       u64 half_warp_link_entry = ring_buffer[pointer(half_warp_entry)];
@@ -672,7 +672,7 @@ struct HashMap {
 
   }
 
-  __device__ inline void insert_phase_2_determine_stage_search(i32& half_lane_idx, u32& half_lane_mask, i32& slot, u64& half_warp_entry, u64& half_warp_temp, i32& half_warp_temp_idx, i32& stage, u64& half_warp_link_entry) {
+  __device__ inline void insert_phase_2_determine_stage_search(i32 half_lane_idx, u32 half_lane_mask, i32 slot, u64 half_warp_entry, u64& half_warp_temp, i32& half_warp_temp_idx, i32& stage, u64 half_warp_link_entry) {
     // Either stage 2 or 3: element has relocation bit, but its first linked element doesn't: find slot relocated element is supposed to go in
     i32 stride = hash_slot(key(half_warp_entry),c,d);
     i32 max_num_lines = GPLDA_HASH_MAX_NUM_LINES - key_distance(key(half_warp_entry), slot);
@@ -743,13 +743,13 @@ struct HashMap {
     }
   }
 
-  __device__ inline void insert_phase_2_stage_1(i32& slot, u64*& half_warp_address, u64& half_warp_entry, u64& half_warp_new_entry, i32& half_warp_entry_idx) {
+  __device__ inline void insert_phase_2_stage_1(i32 slot, u64*& half_warp_address, u64 half_warp_entry, u64& half_warp_new_entry, i32 half_warp_entry_idx) {
     // Stage 1: we have pointers, but no relocation bit: resolve pointer on first thread that found it
     half_warp_address = &data[slot + half_warp_entry_idx];
     half_warp_new_entry = with_relocate(true,half_warp_entry);
   }
 
-  __device__ inline void insert_phase_2_stage_2(i32& half_lane_idx, u64*& half_warp_address, u64& half_warp_entry, u64& half_warp_new_entry, i32& half_warp_entry_idx, u64& half_warp_temp, i32& half_warp_temp_idx) {
+  __device__ inline void insert_phase_2_stage_2(i32 half_lane_idx, u64*& half_warp_address, u64& half_warp_entry, u64& half_warp_new_entry, i32& half_warp_entry_idx, u64 half_warp_temp, i32 half_warp_temp_idx) {
     // Stage 2: we have a relocation bit, but it has not been moved forward yet
     // half_warp_temp: value found by insert_phase_2_determine_stage_search
     // half_warp_temp_idx: index of value found by insert_phase_2_determine_stage_search
@@ -779,14 +779,14 @@ struct HashMap {
     }
   }
 
-  __device__ inline void insert_phase_2_stage_2_cleanup(i32& half_lane_idx, u64& half_warp_entry, u64& half_warp_new_entry) {
+  __device__ inline void insert_phase_2_stage_2_cleanup(i32 half_lane_idx, u64 half_warp_entry, u64 half_warp_new_entry) {
     // swap failed: return linked slot to ring buffer
     if(half_lane_idx == 0 && key(half_warp_entry) != empty_key()) {
       ring_buffer_push(pointer(half_warp_new_entry));
     }
   }
 
-  __device__ inline void insert_phase_2_stage_3(i32& slot, u64*& half_warp_address, u64& half_warp_entry, u64& half_warp_new_entry, i32& half_warp_entry_idx, u64& half_warp_temp) {
+  __device__ inline void insert_phase_2_stage_3(i32 slot, u64*& half_warp_address, u64& half_warp_entry, u64& half_warp_new_entry, i32 half_warp_entry_idx, u64 half_warp_temp) {
     // Stage 3: we have a relocation bit, it has been moved forward, but first linked element has no relocation bit - set relocation bit on linked element
     // half_warp_temp: value in ring buffer, which needs to have its relocation bit set
     half_warp_address = &ring_buffer[pointer(half_warp_entry)];
@@ -794,14 +794,14 @@ struct HashMap {
     half_warp_new_entry = with_relocate(true, half_warp_entry);
   }
 
-  __device__ inline void insert_phase_2_stage_4(i32& slot, u64*& half_warp_address, u64& half_warp_entry, u64& half_warp_new_entry, i32& half_warp_entry_idx, u64& half_warp_temp) {
+  __device__ inline void insert_phase_2_stage_4(i32 slot, u64*& half_warp_address, u64 half_warp_entry, u64& half_warp_new_entry, i32 half_warp_entry_idx, u64 half_warp_temp) {
       // Stage 4: first linked element has a relocation bit: remove relocation bit, move it and advance to next slot
       // half_warp_temp: value in ring buffer, which will replace table entry
       half_warp_address = &data[slot + half_warp_entry_idx];
       half_warp_new_entry = with_relocate(false, half_warp_temp);
   }
 
-  __device__ inline void insert_phase_2_stage_4_advance(i32& half_lane_idx, u32& half_lane_mask, i32& slot, u64& half_warp_entry, u64& half_warp_new_entry) {
+  __device__ inline void insert_phase_2_stage_4_advance(i32 half_lane_idx, u32 half_lane_mask, i32& slot, u64 half_warp_entry, u64 half_warp_new_entry) {
     // make sure to return slot to ring buffer
     if(half_lane_idx == 0) {
       ring_buffer_push(pointer(half_warp_entry));
@@ -851,7 +851,7 @@ struct HashMap {
 
 
 
-  __device__ inline void insert_phase_2(i32& half_lane_idx, u32& half_lane_mask, i32& insert_failed, i32& slot, i32& stride) {
+  __device__ inline void insert_phase_2(i32 half_lane_idx, u32 half_lane_mask, i32& insert_failed, i32& slot, i32 stride) {
     // resolve queue
     u32 finished;
     do {
