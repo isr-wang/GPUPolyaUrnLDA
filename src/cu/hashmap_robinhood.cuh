@@ -327,10 +327,10 @@ struct HashMap {
     resize_move(lane_idx, half_lane_idx, half_lane_mask);
 
     // clear any unfinished entries
-    resize_clear(lane_idx, half_lane_idx);
+    resize_clear(lane_idx, half_lane_idx, half_lane_mask);
 
     // if everything has been inserted, swap pointers and complete resize
-    if(lane_idx == 0 && rebuild_check + 1 >= rebuild_size) {
+    if(rebuild_check + 1 >= rebuild_size) {
       // TODO: last warp sets old memory to empty
     }
   }
@@ -444,21 +444,29 @@ struct HashMap {
 
 
 
-  __device__ inline void resize_clear(i32& lane_idx, i32& half_lane_idx) {
-    // // iterate over map and ensure every key has been cleared
-    // u32 idx = __shfl(rebuild_check, 0);
-    // while(idx < rebuild_size) {
-    //   // clear any leftover keys
-    //   u64 thread_entry = idx+lane_idx < size ? data[idx+lane_idx] : empty();
-    //   u32 warp_unfinished_entries = __ballot(thread_entry != empty());
-    //
-    //   // TODO: if there are unfinished entries, place those
-    //
-    //   // finally, update the index to indicate check is complete
-    //   if(warp_unfinished_entries == 0 && lane_idx == 0) {
-    //     atomicCAS(&rebuild_check, idx, idx+32);
-    //   }
-    // }
+  __device__ inline void resize_clear(i32 lane_idx, i32 half_lane_idx, u32 half_lane_mask) {
+    // iterate over map and ensure every key has been cleared
+    u32 idx = __shfl(rebuild_check, 0);
+    while(idx < rebuild_size) {
+      // clear any leftover keys
+      u64 thread_entry;
+      if(idx + lane_idx < size) {
+        thread_entry = data[idx + lane_idx];
+      }
+
+      u32 warp_unfinished = __ballot(idx + lane_idx < size && (resize(thread_entry) != true || value(thread_entry) != deleted_value()));
+
+      if(warp_unfinished != 0) {
+        // if there are unfinished entries, place those
+        u32 half_warp_unfinished = warp_unfinished & half_lane_mask;
+        if(half_warp_unfinished) {
+          resize_move_slot(half_lane_idx, half_lane_mask, idx + (__ffs(half_warp_unfinished) - 1));
+        }
+      } else {
+        // current slot has been cleared: update counter
+        atomicCAS(&rebuild_check, idx, idx+warpSize);
+      }
+    }
   }
 
 
