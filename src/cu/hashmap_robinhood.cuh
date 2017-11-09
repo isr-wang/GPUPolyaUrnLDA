@@ -341,13 +341,13 @@ struct HashMap {
   __device__ __forceinline__ i32 resize_determine_step(u64 entry) {
     if(resize(entry) == true) {
       if(value(entry) == deleted_value()) {
-        return 3;
+        return 4;
       } else {
-        // perform stage 1 search in new table
-        return 1;
+        // Step 2 or 3: perform stage 1 search in new table
+        return 2;
       }
     } else {
-      return 0;
+      return 1;
     }
   }
 
@@ -410,13 +410,14 @@ struct HashMap {
       i32 step = resize_determine_step(half_warp_entry);
 
       i32 half_warp_new_entry;
-      if(step == 0) {
+      if(step == 1) {
         // set the resize bit
         half_warp_new_entry = with_resize(true, half_warp_entry);
-      } else if(step == 1) {
+      } else if(step == 2) {
         // perform phase 1 insertion into new table
-      } else if(step == 2){
+      } else if(step == 3){
         // set value in old table to deleted
+        half_warp_new_entry = with_value(deleted_value(), half_warp_entry);
       } else {
         // move on to the next index
         finished = true;
@@ -432,7 +433,7 @@ struct HashMap {
         success = __shfl(success, 0, warpSize/2);
       }
 
-      if(step == 1 && success) {
+      if(step == 2 && success) {
         // perform phase 2 resolve for new table
       }
 
