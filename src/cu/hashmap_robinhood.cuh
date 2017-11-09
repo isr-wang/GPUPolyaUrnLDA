@@ -132,10 +132,6 @@ struct HashMap {
     return 0x7ffffffff;
   }
 
-  __device__ __forceinline__ static constexpr u64 empty() {
-    return (((u64) null_pointer()) << 55) | (((u64) empty_key()) << 35);
-  }
-
 
 
 
@@ -148,12 +144,12 @@ struct HashMap {
     for(u32 s = slot; s < slot + warpSize/2; ++s) {
       u64 entry = data[s % size];
       printf("%d:%d\t%d\t%d\t%d\t%ld\t", s % 16, s % size, relocate(entry), pointer(entry), key(entry), value(entry));
-      if(entry != empty()) printf("%d:%d:%d", hash_slot(key(entry),a,b), hash_slot(key(entry),c,d), key_distance(key(entry), slot));
+      if(key(entry) != empty_key()) printf("%d:%d:%d", hash_slot(key(entry),a,b), hash_slot(key(entry),c,d), key_distance(key(entry), slot));
       while(pointer(entry) != null_pointer()) {
         i32 buffer_idx = pointer(entry);
         entry = ring_buffer[buffer_idx];
         printf("\t-------->\t%d:%d\t%d\t%d\t%d\t%ld\t", s % 16, buffer_idx, relocate(entry), pointer(entry), key(entry), value(entry));
-        if(entry != empty()) printf("%d:%d:%d", hash_slot(key(entry),a,b), hash_slot(key(entry),c,d), key_distance(key(entry), slot));
+        if(key(entry) != empty_key()) printf("%d:%d:%d", hash_slot(key(entry),a,b), hash_slot(key(entry),c,d), key_distance(key(entry), slot));
       }
       printf("\n");
     }
@@ -217,6 +213,7 @@ struct HashMap {
     // calculate initialization variables common for all threads
     i32 dim = (sync_type == block) ? blockDim.x : warpSize;
     i32 thread_idx = threadIdx.x % dim;
+    u64 empty_entry = entry(false, false, null_pointer(), empty_key(), 0);
 
     if(thread_idx == 0) {
       ring_buffer_start = 0;
@@ -235,7 +232,7 @@ struct HashMap {
       i32 i = offset * dim + thread_idx;
       if(i < ring_buffer_size) {
         ring_buffer_queue[i] = i;
-        ring_buffer[i] = empty();
+        ring_buffer[i] = empty_entry;
       }
     }
 
@@ -272,6 +269,7 @@ struct HashMap {
     // calculate initialization variables common for all threads
     i32 dim = (sync_type == block) ? blockDim.x : warpSize;
     i32 thread_idx = threadIdx.x % dim;
+    u64 empty_entry = entry(false, false, null_pointer(), empty_key(), 0);
 
     // set map parameters and calculate random hash functions
     if(thread_idx == 0) {
@@ -299,7 +297,7 @@ struct HashMap {
     for(i32 offset = 0; offset < size / dim + 1; ++offset) {
       i32 i = offset * dim + thread_idx;
       if(i < size) {
-        data[i] = empty();
+        data[i] = empty_entry;
       }
     }
 
@@ -481,7 +479,7 @@ struct HashMap {
       // TODO: check if we read back the same thing in the first slot
 
       // check if Robin Hood guarantee indicates no key is present
-      u32 no_key = __ballot(entry == empty() || key_distance(key(entry), slot) < i) & half_lane_mask;
+      u32 no_key = __ballot(key(entry) == empty_key() || key_distance(key(entry), slot) < i) & half_lane_mask;
       if(no_key != 0) {
         return 0;
       }
@@ -529,7 +527,7 @@ struct HashMap {
         do {
           // determine whether we found the key, an empty slot, or no key is present
           thread_found_key = key(thread_table_entry) == half_warp_key;
-          thread_found_empty = thread_table_entry == empty();
+          thread_found_empty = key(thread_table_entry) == empty_key();
           thread_no_key = key_distance(key(thread_table_entry), insert_slot) < i;
           thread_found_pointer = pointer(thread_table_entry) != null_pointer();
 
@@ -589,7 +587,7 @@ struct HashMap {
 
             // clear buffer, if it was requested
             if(buffer_idx != null_pointer()) {
-              ring_buffer[buffer_idx] = empty();
+              ring_buffer[buffer_idx] = entry(false, false, null_pointer(), empty_key(), 0);
               ring_buffer_push(buffer_idx);
             }
           } else {
@@ -701,10 +699,11 @@ struct HashMap {
       }
 
       // if no pointers, check to see if slot contains an empty element
-      u32 slot_empty = __ballot(thread_search_entry == empty()) & half_lane_mask;
+      u32 slot_empty = __ballot(key(thread_search_entry) == empty_key()) & half_lane_mask;
       if(slot_empty != 0) {
-        half_warp_temp = empty();
-        half_warp_temp_idx = search_slot + ((__ffs(slot_empty) - 1) % (warpSize/2));
+        i32 empty_half_lane_idx = (__ffs(slot_empty) - 1) % (warpSize/2);
+        half_warp_temp = __shfl(thread_search_entry, empty_half_lane_idx, warpSize/2);
+        half_warp_temp_idx = search_slot + empty_half_lane_idx;
         stage = 2;
         break;
       }
@@ -736,10 +735,10 @@ struct HashMap {
     // Stage 2: we have a relocation bit, but it has not been moved forward yet
     // half_warp_temp: value found by insert_phase_2_determine_stage_search
     // half_warp_temp_idx: index of value found by insert_phase_2_determine_stage_search
-    if(half_warp_temp == empty()) {
+    if(key(half_warp_temp) == empty_key()) {
       half_warp_address = &data[half_warp_temp_idx];
       half_warp_new_entry = with_relocate(false,half_warp_entry);
-      half_warp_entry = empty();
+      half_warp_entry = half_warp_temp;
       half_warp_entry_idx = 0;
     } else {
       // grab slot from ring buffer
@@ -764,7 +763,7 @@ struct HashMap {
 
   __device__ inline void insert_phase_2_stage_2_cleanup(i32& half_lane_idx, u64& half_warp_entry, u64& half_warp_new_entry) {
     // swap failed: return linked slot to ring buffer
-    if(half_lane_idx == 0 && half_warp_entry != empty()) {
+    if(half_lane_idx == 0 && key(half_warp_entry) != empty_key()) {
       ring_buffer_push(pointer(half_warp_new_entry));
     }
   }

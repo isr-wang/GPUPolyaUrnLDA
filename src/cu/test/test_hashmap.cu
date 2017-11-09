@@ -222,9 +222,9 @@ __global__ void test_hash_map_insert_phase_2_determine_stage_search(void* map_st
   half_warp_temp = 0;
   half_warp_temp_idx = -1;
   if(threadIdx.x < 16) {
-    m->data[16+threadIdx.x] = m->empty();
-    m->data[32+threadIdx.x] = m->empty();
-    m->data[48+threadIdx.x] = m->empty();
+    m->data[16+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
+    m->data[32+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
+    m->data[48+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
   }
 
 
@@ -245,7 +245,7 @@ __global__ void test_hash_map_insert_phase_2_determine_stage_search(void* map_st
 
   if(stage != 2) {
     error[0] = 4;
-  } else if(half_warp_temp != m->empty()) {
+  } else if(half_warp_temp != m->entry(false, false, m->null_pointer(), m->empty_key(), 0)) {
     error[0] = 5;
   } else if(half_warp_temp_idx != 32/*empty slot's index*/) {
     error[0] = 6;
@@ -255,9 +255,9 @@ __global__ void test_hash_map_insert_phase_2_determine_stage_search(void* map_st
   half_warp_temp = 0;
   half_warp_temp_idx = -1;
   if(threadIdx.x < 16) {
-    m->data[16+threadIdx.x] = m->empty();
-    m->data[32+threadIdx.x] = m->empty();
-    m->data[48+threadIdx.x] = m->empty();
+    m->data[16+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
+    m->data[32+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
+    m->data[48+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
   }
 
 
@@ -294,9 +294,9 @@ __global__ void test_hash_map_insert_phase_2_determine_stage_search(void* map_st
   half_warp_temp = 0;
   half_warp_temp_idx = -1;
   if(threadIdx.x < 16) {
-    m->data[16+threadIdx.x] = m->empty();
-    m->data[32+threadIdx.x] = m->empty();
-    m->data[48+threadIdx.x] = m->empty();
+    m->data[16+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
+    m->data[32+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
+    m->data[48+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
   }
 
 
@@ -328,9 +328,9 @@ __global__ void test_hash_map_insert_phase_2_determine_stage_search(void* map_st
   half_warp_temp = 0;
   half_warp_temp_idx = -1;
   if(threadIdx.x < 16) {
-    m->data[16+threadIdx.x] = m->empty();
-    m->data[32+threadIdx.x] = m->empty();
-    m->data[48+threadIdx.x] = m->empty();
+    m->data[16+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
+    m->data[32+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
+    m->data[48+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
   }
 
 
@@ -387,9 +387,9 @@ __global__ void test_hash_map_insert_phase_2_determine_stage(void* map_storage, 
   half_warp_temp = 0;
   half_warp_temp_idx = -1;
   if(threadIdx.x < 16) {
-    m->data[16+threadIdx.x] = m->empty();
-    m->data[32+threadIdx.x] = m->empty();
-    m->data[48+threadIdx.x] = m->empty();
+    m->data[16+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
+    m->data[32+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
+    m->data[48+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
   }
 
 
@@ -427,9 +427,9 @@ __global__ void test_hash_map_insert_phase_2_determine_stage(void* map_storage, 
   half_warp_temp = 0;
   half_warp_temp_idx = -1;
   if(threadIdx.x < 16) {
-    m->data[16+threadIdx.x] = m->empty();
-    m->data[32+threadIdx.x] = m->empty();
-    m->data[48+threadIdx.x] = m->empty();
+    m->data[16+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
+    m->data[32+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
+    m->data[48+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
   }
 
 
@@ -469,9 +469,9 @@ __global__ void test_hash_map_insert_phase_2_determine_stage(void* map_storage, 
   half_warp_temp = 0;
   half_warp_temp_idx = -1;
   if(threadIdx.x < 16) {
-    m->data[16+threadIdx.x] = m->empty();
-    m->data[32+threadIdx.x] = m->empty();
-    m->data[48+threadIdx.x] = m->empty();
+    m->data[16+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
+    m->data[32+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
+    m->data[48+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
   }
 
 
@@ -504,9 +504,9 @@ __global__ void test_hash_map_insert_phase_2_determine_stage(void* map_storage, 
   half_warp_temp = 0;
   half_warp_temp_idx = -1;
   if(threadIdx.x < 16) {
-    m->data[16+threadIdx.x] = m->empty();
-    m->data[32+threadIdx.x] = m->empty();
-    m->data[48+threadIdx.x] = m->empty();
+    m->data[16+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
+    m->data[32+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
+    m->data[48+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
   }
 
 
@@ -530,9 +530,9 @@ __global__ void test_hash_map_insert_phase_2_determine_stage(void* map_storage, 
   half_warp_temp = 0;
   half_warp_temp_idx = -1;
   if(threadIdx.x < 16) {
-    m->data[16+threadIdx.x] = m->empty();
-    m->data[32+threadIdx.x] = m->empty();
-    m->data[48+threadIdx.x] = m->empty();
+    m->data[16+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
+    m->data[32+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
+    m->data[48+threadIdx.x] = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
   }
 }
 
