@@ -523,6 +523,8 @@ struct HashMap {
         break;
       }
 
+      // TODO: don't overwrite relocation bit on linked entry: instead, move it first
+
       // try to insert slot
       if(half_lane_idx == swap_idx) {
         // prepare value for insertion

@@ -60,7 +60,7 @@ __global__ void test_hash_map_insert_print_steps(void* map_storage, curandStateP
   m->insert2(threadIdx.x < 16 ? 37 : 40, 1); if(threadIdx.x == 0) { m->debug_print_slot(48); printf("------------------------------------------------------------\n"); }
   m->insert2(threadIdx.x < 16 ? 43 : 46, 1); if(threadIdx.x == 0) { m->debug_print_slot(48); printf("------------------------------------------------------------\n"); }
 
-  // // 16->48 evict
+  // 16->48 evict
   m->insert2(threadIdx.x < 16 ? 96 : 99, 1); if(threadIdx.x == 0) { m->debug_print_slot(48); printf("------------------------------------------------------------\n"); }
   m->insert2(threadIdx.x < 16 ? 102 : 105, 1); if(threadIdx.x == 0) { m->debug_print_slot(48); printf("------------------------------------------------------------\n"); }
   m->insert2(threadIdx.x < 16 ? 108 : 111, 1); if(threadIdx.x == 0) { m->debug_print_slot(48); printf("------------------------------------------------------------\n"); }
@@ -85,8 +85,112 @@ __global__ void test_hash_map_insert_print_steps(void* map_storage, curandStateP
 
 
 
-__global__ void test_hash_map_insert_phase_1() {
+__global__ void test_hash_map_insert_phase_1(void* map_storage, u32* error, curandStatePhilox4_32_10_t* rng) {
+  // initialize
+  __shared__ gplda::HashMap m[1];
+  m->init(map_storage, 204, 96, 4, rng, blockDim.x);
+  m->a=26; m->b=1; m->c=30; m->d=13;
+  u64 empty = m->entry(false, false, m->null_pointer(), m->empty_key(), 0);
+  __syncthreads();
 
+  // variables
+  u32 key;
+  i32 diff;
+  i32 lane_idx = threadIdx.x % warpSize;
+  i32 half_lane_idx = threadIdx.x % (warpSize/2);
+  u32 half_lane_mask = 0x0000ffff << (((threadIdx.x % warpSize) / (warpSize / 2)) * (warpSize / 2));
+  i32 insert_failed;
+  i32 slot;
+  i32 stride;
+
+
+
+
+  // type 1
+  if(threadIdx.x < 16) {
+    m->data[16+threadIdx.x] = m->entry(false,false, m->null_pointer(), 3*threadIdx.x, 1);
+    m->data[32+threadIdx.x] = m->entry(false,false, m->null_pointer(), 48 + 3*threadIdx.x, 1);
+    m->data[48+threadIdx.x] = m->entry(false,false, m->null_pointer(), 1 + 3*threadIdx.x, 1);
+  }
+  __syncthreads();
+
+  key = 48;
+  diff = 1;
+  insert_failed = false; slot = m->hash_slot(key,m->a,m->b); stride = m->hash_slot(key,m->c,m->d);
+  m->insert_phase_1(key, diff, lane_idx, half_lane_idx, half_lane_mask, insert_failed, slot, stride);
+  __syncthreads();
+
+  if(m->value(m->data[32]) != 3) {
+    error[0] = 1;
+  } else if(slot != 32) {
+    error[0] = 2;
+  }
+
+  if(threadIdx.x < 16) {
+    m->data[16+threadIdx.x] = empty;
+    m->data[32+threadIdx.x] = empty;
+    m->data[48+threadIdx.x] = empty;
+  }
+
+
+
+
+  // type 2
+  if(threadIdx.x < 16) {
+    m->data[16+threadIdx.x] = m->entry(false,false, m->null_pointer(), 3*threadIdx.x, 1);
+    m->data[32+threadIdx.x] = m->entry(false,false, m->null_pointer(), 48 + 3*threadIdx.x, 1);
+    m->data[48+threadIdx.x] = empty;
+  }
+  __syncthreads();
+
+  key = 96;
+  diff = 1;
+  insert_failed = false; slot = m->hash_slot(key,m->a,m->b); stride = m->hash_slot(key,m->c,m->d);
+  m->insert_phase_1(key, diff, lane_idx, half_lane_idx, half_lane_mask, insert_failed, slot, stride);
+  __syncthreads();
+
+  if(m->data[48] != m->entry(false,false, m->null_pointer(), 96, 2)) {
+    error[0] = 3;
+  } else if(slot != 48) {
+    error[0] = 4;
+  }
+
+  if(threadIdx.x < 16) {
+    m->data[16+threadIdx.x] = empty;
+    m->data[32+threadIdx.x] = empty;
+    m->data[48+threadIdx.x] = empty;
+  }
+
+
+
+
+  // type 3
+  if(threadIdx.x < 16) {
+    m->data[16+threadIdx.x] = m->entry(false,false, m->null_pointer(), 3*threadIdx.x, 1);
+    m->data[32+threadIdx.x] = m->entry(false,false, m->null_pointer(), 48 + 3*threadIdx.x, 1);
+    m->data[48+threadIdx.x] = m->entry(false,false, m->null_pointer(), 1 + 3*threadIdx.x, 1);
+  }
+  __syncthreads();
+
+  key = 96;
+  diff = 1;
+  insert_failed = false; slot = m->hash_slot(key,m->a,m->b); stride = m->hash_slot(key,m->c,m->d);
+  m->insert_phase_1(key, diff, lane_idx, half_lane_idx, half_lane_mask, insert_failed, slot, stride);
+  __syncthreads();
+
+  if(m->pointer(m->data[48]) == m->null_pointer()){
+    error[0] = 5;
+  } else if(m->ring_buffer[m->pointer(m->data[48])] != m->entry(false,false, m->null_pointer(), 96, 2)) {
+    error[0] = 6;
+  } else if(slot != 48) {
+    error[0] = 7;
+  }
+
+  if(threadIdx.x < 16) {
+    m->data[16+threadIdx.x] = empty;
+    m->data[32+threadIdx.x] = empty;
+    m->data[48+threadIdx.x] = empty;
+  }
 }
 
 
@@ -118,6 +222,7 @@ __global__ void test_hash_map_insert_phase_2_determine_index(void* map_storage, 
   __syncthreads();
   slot = 16;
   m->insert_phase_2_determine_index(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_entry_idx);
+  __syncthreads();
 
   if(half_warp_entry_idx != 4) {
     error[0] = 1;
@@ -137,6 +242,7 @@ __global__ void test_hash_map_insert_phase_2_determine_index(void* map_storage, 
   __syncthreads();
   slot = 16;
   m->insert_phase_2_determine_index(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_entry_idx);
+  __syncthreads();
 
   if(half_warp_entry_idx != 4) {
     error[0] = 3;
@@ -162,6 +268,7 @@ __global__ void test_hash_map_insert_phase_2_determine_index(void* map_storage, 
   __syncthreads();
   slot = 16;
   m->insert_phase_2_determine_index(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_entry_idx);
+  __syncthreads();
 
   if(half_warp_entry_idx != 5) {
     error[0] = 5;
@@ -211,6 +318,7 @@ __global__ void test_hash_map_insert_phase_2_determine_stage_search(void* map_st
   }
   __syncthreads();
   m->insert_phase_2_determine_stage_search(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage, half_warp_link_entry);
+  __syncthreads();
 
   if(stage != 2) {
     error[0] = 1;
@@ -244,6 +352,7 @@ __global__ void test_hash_map_insert_phase_2_determine_stage_search(void* map_st
   }
   __syncthreads();
   m->insert_phase_2_determine_stage_search(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage, half_warp_link_entry);
+  __syncthreads();
 
   if(stage != 2) {
     error[0] = 4;
@@ -283,6 +392,7 @@ __global__ void test_hash_map_insert_phase_2_determine_stage_search(void* map_st
   }
   __syncthreads();
   m->insert_phase_2_determine_stage_search(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage, half_warp_link_entry);
+  __syncthreads();
 
   if(stage != 3) {
     error[0] = 7;
@@ -317,6 +427,7 @@ __global__ void test_hash_map_insert_phase_2_determine_stage_search(void* map_st
   }
   __syncthreads();
   m->insert_phase_2_determine_stage_search(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage, half_warp_link_entry);
+  __syncthreads();
 
   if(stage != 3) {
     error[0] = 10;
@@ -381,6 +492,7 @@ __global__ void test_hash_map_insert_phase_2_determine_stage(void* map_storage, 
 
   half_warp_entry = m->data[16];
   m->insert_phase_2_determine_stage(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage);
+  __syncthreads();
 
   if(stage != 1) {
     error[0] = 1;
@@ -417,6 +529,7 @@ __global__ void test_hash_map_insert_phase_2_determine_stage(void* map_storage, 
 
   half_warp_entry = m->data[16];
   m->insert_phase_2_determine_stage(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage);
+  __syncthreads();
 
   if(stage != 2) {
     error[0] = 2;
@@ -459,6 +572,7 @@ __global__ void test_hash_map_insert_phase_2_determine_stage(void* map_storage, 
 
   half_warp_entry = m->data[16];
   m->insert_phase_2_determine_stage(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage);
+  __syncthreads();
 
   if(stage != 3) {
     error[0] = 5;
@@ -496,6 +610,7 @@ __global__ void test_hash_map_insert_phase_2_determine_stage(void* map_storage, 
 
   half_warp_entry = m->data[16];
   m->insert_phase_2_determine_stage(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage);
+  __syncthreads();
 
   if(stage != 4) {
     error[0] = 8;
@@ -524,6 +639,7 @@ __global__ void test_hash_map_insert_phase_2_determine_stage(void* map_storage, 
 
   half_warp_entry = m->data[16];
   m->insert_phase_2_determine_stage(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage);
+  __syncthreads();
 
   if(stage != 5) {
     error[0] = 10;
@@ -544,39 +660,7 @@ __global__ void test_hash_map_insert_phase_2_determine_stage(void* map_storage, 
 
 
 
-__global__ void test_hash_map_insert_phase_2_stage_1() {
-
-}
-
-__global__ void test_hash_map_insert_phase_2_stage_2() {
-
-}
-
-__global__ void test_hash_map_insert_phase_2_stage_3() {
-
-}
-
-__global__ void test_hash_map_insert_phase_2_stage_4() {
-
-}
-
-__global__ void test_hash_map_insert_phase_2_stage_5() {
-
-}
-
-__global__ void test_hash_map_insert_phase_2_stage_2_cleanup() {
-
-}
-
-__global__ void test_hash_map_insert_phase_2_stage_4_advance() {
-
-}
-
-
-
-
-
-__global__ void test_hash_map_accumulate2(void* map_storage, u32 total_map_size, u32 num_unique_elements, u32 num_elements, u32 max_size, u32 num_concurrent_elements, u32* out, curandStatePhilox4_32_10_t* rng, i32 rebuild) {
+__global__ void test_hash_map_insert2(void* map_storage, u32 total_map_size, u32 num_unique_elements, u32 num_elements, u32 max_size, u32 num_concurrent_elements, u32* out, curandStatePhilox4_32_10_t* rng, i32 rebuild) {
   __shared__ gplda::HashMap m[1];
   u32 initial_size = rebuild ? num_elements : max_size;
   m->init(map_storage, total_map_size, initial_size, num_concurrent_elements, rng, blockDim.x);
@@ -596,7 +680,7 @@ __global__ void test_hash_map_accumulate2(void* map_storage, u32 total_map_size,
 
   // rebuild if needed
   if(rebuild == true) {
-//    m->trigger_resize(m->empty_key(), 0);
+    m->resize_table();
   }
 
   // sync if needed
@@ -614,6 +698,38 @@ __global__ void test_hash_map_accumulate2(void* map_storage, u32 total_map_size,
   }
 }
 
+
+
+void test_hash_map_phase_1() {
+  constexpr u32 max_size = 96;
+  constexpr u32 warpSize = 32;
+  constexpr u32 num_concurrent_elements = 4;
+  constexpr u32 total_map_size = 2*max_size + 3*num_concurrent_elements;
+
+  curandStatePhilox4_32_10_t* rng;
+  cudaMalloc(&rng, sizeof(curandStatePhilox4_32_10_t)) >> GPLDA_CHECK;
+  gplda::rng_init<<<1,1>>>(0,0,rng);
+  cudaDeviceSynchronize() >> GPLDA_CHECK;
+
+  void* map;
+  cudaMalloc(&map, total_map_size * sizeof(u64)) >> GPLDA_CHECK;
+
+  u32* out;
+  cudaMalloc(&out, sizeof(u32)) >> GPLDA_CHECK;
+  u32 out_host = 0;
+
+  // phase 1
+  test_hash_map_insert_phase_1<<<1,warpSize>>>(map, out, rng);
+  cudaDeviceSynchronize() >> GPLDA_CHECK;
+
+  cudaMemcpy(&out_host, out, sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
+  assert(out_host == 0);
+
+  // cleanup
+  cudaFree(out);
+  cudaFree(map);
+  cudaFree(rng);
+}
 
 
 
@@ -634,7 +750,7 @@ void test_hash_map_phase_2() {
 
   u32* out;
   cudaMalloc(&out, sizeof(u32)) >> GPLDA_CHECK;
-  u32 out_host;
+  u32 out_host = 0;
 
   // phase 2 determine index
   test_hash_map_insert_phase_2_determine_index<<<1,warpSize>>>(map, out, rng);
@@ -720,8 +836,8 @@ void test_hash_map() {
   }
   out_host[0] = 0;
 
-  // accumulate2<warp, no_rebuild>
-  test_hash_map_accumulate2<<<1,warpSize>>>(map, total_map_size, num_unique_elements, num_elements, max_size, num_concurrent_elements, out, rng, false);
+  // insert2: warp, no rebuild
+  test_hash_map_insert2<<<1,warpSize>>>(map, total_map_size, num_unique_elements, num_elements, max_size, num_concurrent_elements, out, rng, false);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 
   cudaMemcpy(out_host, out, num_elements * sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
@@ -731,8 +847,8 @@ void test_hash_map() {
     out_host[i] = 0;
   }
 
-  // accumulate2<block, no_rebuild>
-  test_hash_map_accumulate2<<<1,GPLDA_POLYA_URN_SAMPLE_BLOCKDIM>>>(map, total_map_size, num_unique_elements, num_elements, max_size, num_concurrent_elements, out, rng, false);
+  // insert2: block, no rebuild
+  test_hash_map_insert2<<<1,GPLDA_POLYA_URN_SAMPLE_BLOCKDIM>>>(map, total_map_size, num_unique_elements, num_elements, max_size, num_concurrent_elements, out, rng, false);
   cudaDeviceSynchronize() >> GPLDA_CHECK;
 
   cudaMemcpy(out_host, out, num_elements * sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
