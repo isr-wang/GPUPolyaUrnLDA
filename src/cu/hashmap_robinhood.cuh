@@ -497,10 +497,7 @@ struct HashMap {
     return 0;
   }
 
-
-
-
-
+  
 
   __device__ inline void insert_phase_1(u32 half_warp_key, i32 diff, i32 lane_idx, i32 half_lane_idx, u32 half_lane_mask, i32& insert_failed, i32& slot, i32 stride) {
     // build entry to be inserted and shuffle to entire half warp
@@ -590,8 +587,9 @@ struct HashMap {
       for(i32 j = 1; j <= 3; ++j) {
         u32 half_warp_swap_type = __ballot(swap_type == j) & half_lane_mask;
         if(half_warp_swap_type != 0) {
-          slot = insert_slot;
           swap_idx = (__ffs(half_warp_swap_type) - 1) % (warpSize/2);
+          swap_type = __shfl(swap_type, swap_idx, warpSize/2);
+          slot = __shfl(insert_slot, swap_idx, warpSize/2);
           break;
         }
       }
