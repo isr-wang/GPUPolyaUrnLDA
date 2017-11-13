@@ -415,7 +415,7 @@ struct HashMap {
         half_warp_new_entry = with_resize(true, half_warp_entry);
       } else if(step == 2) {
         // perform phase 1 insertion into new table
-      } else if(step == 3){
+      } else if(step == 3) {
         // set value in old table to deleted
         half_warp_new_entry = with_value(deleted_value(), half_warp_entry);
       } else {
@@ -525,120 +525,101 @@ struct HashMap {
     // build entry to be inserted and shuffle to entire half warp
     u64 half_warp_entry = __shfl(entry(false,false,null_pointer(),half_warp_key,max(0,diff)), 0, warpSize/2);
 
-    // find slot and perform insertion
-    for(i32 i = 0; i < GPLDA_HASH_MAX_NUM_LINES; ++i) {
+    i32 success;
+    do {
+      // declare variables
+      u64* thread_address;
+      u64 thread_entry;
+      u64 thread_new_entry;
+      i32 swap_idx;
+      i32 swap_type;
+
+      // find which slot the entry will go in
+      insert_phase_1_search(half_warp_key, half_lane_idx, half_lane_mask, insert_failed, slot, stride, thread_address, thread_entry, swap_idx, swap_type);
+
+      // exit if search failed
+      if(insert_failed != 0) {
+        break;
+      }
+
+      // try to insert slot
+      if(half_lane_idx == swap_idx) {
+        // prepare value for insertion
+        i32 buffer_idx;
+        if(swap_type == 1) {
+          // swap target: entry with key - will be modified
+          u64 new_value = max((u64) 0, ((u64) value(thread_entry)) + diff);
+          thread_new_entry = with_value(new_value, thread_entry);
+        } else if(swap_type == 2) {
+          // swap target: empty value in table
+          thread_new_entry = half_warp_entry;
+        } else if(swap_type == 3) {
+          // swap target: non-empty value, get slot from ring buffer
+          buffer_idx = ring_buffer_pop();
+          ring_buffer[buffer_idx] = half_warp_entry;
+          thread_new_entry = with_pointer(buffer_idx, thread_entry);
+        }
+
+        // perform swap
+        u64 old = atomicCAS(thread_address, thread_entry, thread_new_entry);
+        success = (thread_entry == old);
+
+        // if failed, return to ring buffer
+        if(!success && swap_type == 3) {
+          ring_buffer[buffer_idx] = entry(false, false, null_pointer(), empty_key(), 0);
+          ring_buffer_push(buffer_idx);
+        }
+      }
+      success = __shfl(success, swap_idx, warpSize/2);
+    } while(!success);
+  }
+
+
+
+  __device__ inline void insert_phase_1_search(u32 half_warp_key, i32 half_lane_idx, u32 half_lane_mask, i32& insert_failed, i32& slot, i32 stride, u64*& thread_address, u64& thread_entry, i32& swap_idx, i32& swap_type) {
+    // find slot to perform insertion
+    swap_type = 0;
+    swap_idx = -1;
+    for(i32 i = key_distance(key(thread_entry), slot); i < GPLDA_HASH_MAX_NUM_LINES; ++i) {
       // compute slot
       i32 insert_slot = (slot + i*stride) % size;
 
-      // try to insert, retrying if race condition indicates it is necessary
-      u32 retry;
-      u32 success;
-      do {
-        // retrieve entry for current half lane, set constants
-        u64* thread_address = &data[insert_slot + half_lane_idx];
-        u64 thread_table_entry = *thread_address;
-        retry = 0;
-        success = 0;
+      // retrieve entry for current half lane, set constants
+      thread_address = &data[insert_slot + half_lane_idx];
+      thread_entry = *thread_address;
 
-        // TODO: don't overwrite relocation bit on linked entry: instead, move it first
+      // follow pointers
+      while(key(thread_entry) != half_warp_key && pointer(thread_entry) != null_pointer()) {
+        thread_address = &ring_buffer[pointer(thread_entry)];
+        thread_entry = *thread_address;
+      }
 
-        // if there are pointers, follow them to determine distance
-        u32 thread_found_key;
-        u32 thread_found_empty;
-        u32 thread_no_key;
-        u32 thread_found_pointer;
-        u32 half_warp_found_key;
-        u32 half_warp_found_empty;
-        u32 half_warp_no_key;
-        u32 half_warp_found_pointer;
-        do {
-          // determine whether we found the key, an empty slot, or no key is present
-          thread_found_key = key(thread_table_entry) == half_warp_key;
-          thread_found_empty = key(thread_table_entry) == empty_key();
-          thread_no_key = key_distance(key(thread_table_entry), insert_slot) < i;
-          thread_found_pointer = pointer(thread_table_entry) != null_pointer();
+      // check if we found the key, empty slot, or no key is present
+      if(key(thread_entry) == half_warp_key) {
+        swap_type = 1;
+      } else if(key(thread_entry) == empty_key()) {
+        swap_type = 2;
+      } else if(key_distance(key(thread_entry), insert_slot) < i) {
+        swap_type = 3;
+      }
 
-          // determine which thread should write
-          half_warp_found_key = __ballot(thread_found_key) & half_lane_mask;
-          half_warp_found_empty = __ballot(thread_found_empty) & half_lane_mask;
-          half_warp_no_key = __ballot(thread_no_key) & half_lane_mask;
-          half_warp_found_pointer = __ballot(thread_found_pointer) & half_lane_mask;
-
-          if(thread_found_pointer == true) {
-            thread_address = &ring_buffer[pointer(thread_table_entry)];
-            thread_table_entry = *thread_address;
-          }
-        } while (half_warp_found_key == 0 && half_warp_found_pointer != 0);
-
-        u32 half_warp_write;
-        if(half_warp_found_key != 0) {
-          half_warp_write = half_warp_found_key;
-        } else if(half_warp_found_empty != 0) {
-          half_warp_write = half_warp_found_empty;
-        } else if(half_warp_no_key != 0) {
-          half_warp_write = half_warp_no_key;
-        } else {
-          half_warp_write = 0;
+      // determine what half warp should do
+      for(i32 j = 1; j <= 3; ++j) {
+        u32 half_warp_swap_type = __ballot(swap_type == j) & half_lane_mask;
+        if(half_warp_swap_type != 0) {
+          slot = insert_slot;
+          swap_idx = (__ffs(half_warp_swap_type) - 1) % (warpSize/2);
+          break;
         }
-        u32 lane_write_idx = __ffs(half_warp_write) - 1; // __ffs uses 1-based indexing
+      }
 
-        u64 half_warp_write_entry;
-        if(half_warp_write != 0 && lane_idx == lane_write_idx) {
-          // prepare new entry for table
-          u32 buffer_idx = null_pointer();
-
-          // determine what kind of new entry we have
-          if(thread_found_key == true) {
-            // key found: accumulate value
-            u64 new_value = max((u64) 0, ((u64) value(thread_table_entry)) + diff);
-            half_warp_write_entry = with_value(new_value, half_warp_entry);
-          } else if(thread_found_empty == true) {
-            // empty slot found: insert entry
-            half_warp_write_entry = half_warp_entry;
-          } else if(thread_no_key == true) {
-            // Robin Hood guarantee indicates no key present: insert into eviction queue
-            buffer_idx = ring_buffer_pop();
-            ring_buffer[buffer_idx] = half_warp_entry;
-
-            // prepare new entry
-            half_warp_write_entry = with_pointer(buffer_idx, thread_table_entry);
-          }
-
-          // swap new and old entry
-          u64 old_entry = atomicCAS(thread_address, thread_table_entry, half_warp_write_entry);
-
-          // make sure retrieved entry matches what was expected, so we know that CAS succeeded
-          if(old_entry != thread_table_entry) {
-            // set retry indicator
-            retry = true;
-
-            // clear buffer, if it was requested
-            if(buffer_idx != null_pointer()) {
-              ring_buffer[buffer_idx] = entry(false, false, null_pointer(), empty_key(), 0);
-              ring_buffer_push(buffer_idx);
-            }
-          } else {
-            success = true;
-          }
-        }
-
-        // ensure entire halfwarp knows whether write succeeded
-        success = __ballot(success) & half_lane_mask;
-
-        // ensure retry, if necessary, is performed on entire half warp
-        retry = __ballot(retry) & half_lane_mask;
-      } while(retry != 0);
-
-      // if half warp successfully performed a write, exit the loop
-      if(success != 0) {
-        slot = insert_slot;
+      // declare failure if reached limit
+      if(swap_idx >= 0) {
         break;
       } else if(i == GPLDA_HASH_MAX_NUM_LINES - 1) {
-        // insertion failed, get ready to return false
-        insert_failed = 1;
+        insert_failed = true;
       }
     }
-
   }
 
 
