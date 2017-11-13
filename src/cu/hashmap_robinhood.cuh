@@ -497,11 +497,12 @@ struct HashMap {
     return 0;
   }
 
-  
+
 
   __device__ inline void insert_phase_1(u32 half_warp_key, i32 diff, i32 lane_idx, i32 half_lane_idx, u32 half_lane_mask, i32& insert_failed, i32& slot, i32 stride) {
-    // build entry to be inserted and shuffle to entire half warp
-    u64 half_warp_entry = __shfl(entry(false,false,null_pointer(),half_warp_key,max(0,diff)), 0, warpSize/2);
+    // ensure entire half warp knows key and diff to be inserted
+    half_warp_key = __shfl(half_warp_key, 0, warpSize/2);
+    diff = __shfl(diff, 0, warpSize/2);
 
     i32 success;
     do {
@@ -527,16 +528,16 @@ struct HashMap {
         // prepare value for insertion
         i32 buffer_idx;
         if(swap_type == 1) {
-          // swap target: entry with key - will be modified
+          // swap target: exiting entry with key, will be modified
           u64 new_value = max((u64) 0, ((u64) value(thread_entry)) + diff);
           thread_new_entry = with_value(new_value, thread_entry);
         } else if(swap_type == 2) {
           // swap target: empty value in table
-          thread_new_entry = half_warp_entry;
+          thread_new_entry = entry(false,false,null_pointer(),half_warp_key,max(0,diff));
         } else if(swap_type == 3) {
           // swap target: non-empty value, get slot from ring buffer
           buffer_idx = ring_buffer_pop();
-          ring_buffer[buffer_idx] = half_warp_entry;
+          ring_buffer[buffer_idx] = entry(false,false,null_pointer(),half_warp_key,max(0,diff));
           thread_new_entry = with_pointer(buffer_idx, thread_entry);
         }
 
@@ -560,12 +561,9 @@ struct HashMap {
     // find slot to perform insertion
     swap_type = 0;
     swap_idx = -1;
-    for(i32 i = key_distance(key(thread_entry), slot); i < GPLDA_HASH_MAX_NUM_LINES; ++i) {
-      // compute slot
-      i32 insert_slot = (slot + i*stride) % size;
-
+    for(i32 i = key_distance(half_warp_key, slot); i < GPLDA_HASH_MAX_NUM_LINES; ++i) {
       // retrieve entry for current half lane, set constants
-      thread_address = &data[insert_slot + half_lane_idx];
+      thread_address = &data[slot + half_lane_idx];
       thread_entry = *thread_address;
 
       // follow pointers
@@ -579,7 +577,7 @@ struct HashMap {
         swap_type = 1;
       } else if(key(thread_entry) == empty_key()) {
         swap_type = 2;
-      } else if(key_distance(key(thread_entry), insert_slot) < i) {
+      } else if(key_distance(key(thread_entry), slot) < i) {
         swap_type = 3;
       }
 
@@ -589,16 +587,17 @@ struct HashMap {
         if(half_warp_swap_type != 0) {
           swap_idx = (__ffs(half_warp_swap_type) - 1) % (warpSize/2);
           swap_type = __shfl(swap_type, swap_idx, warpSize/2);
-          slot = __shfl(insert_slot, swap_idx, warpSize/2);
           break;
         }
       }
 
-      // declare failure if reached limit
+      // advance slot, declare failure if reached limit
       if(swap_idx >= 0) {
         break;
       } else if(i == GPLDA_HASH_MAX_NUM_LINES - 1) {
         insert_failed = true;
+      } else {
+        slot = (slot + stride) % size;
       }
     }
   }

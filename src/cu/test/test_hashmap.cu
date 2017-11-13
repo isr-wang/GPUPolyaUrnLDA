@@ -247,6 +247,9 @@ __global__ void test_hash_map_insert_phase_1(void* map_storage, u32* error, cura
   } else if(slot != 32) {
     error[0] = 2;
   }
+  if(error[0] != 0) {
+    return;
+  }
 
   if(threadIdx.x < 16) {
     m->data[16+threadIdx.x] = empty;
