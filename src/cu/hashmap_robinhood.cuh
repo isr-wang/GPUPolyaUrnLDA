@@ -15,7 +15,6 @@
 
 namespace gplda {
 
-template<SynchronizationType sync_type>
 struct HashMap {
   u32 size;
   u32 max_size;
@@ -39,15 +38,6 @@ struct HashMap {
   u32 ring_buffer_size;
   u32* ring_buffer_queue;
   u64* ring_buffer;
-
-
-
-
-  __device__ __forceinline__ void sync() {
-    if(sync_type == block) {
-      __syncthreads();
-    }
-  }
 
 
 
@@ -209,9 +199,8 @@ struct HashMap {
     return warp_start + offset;
   }
 
-  __device__ inline void ring_buffer_init(u64* b, u32* q, u32 s) {
+  __device__ inline void ring_buffer_init(u64* buffer, u32* queue, u32 size, i32 dim) {
     // calculate initialization variables common for all threads
-    i32 dim = (sync_type == block) ? blockDim.x : warpSize;
     i32 thread_idx = threadIdx.x % dim;
     u64 empty_entry = entry(false, false, null_pointer(), empty_key(), 0);
 
@@ -219,25 +208,19 @@ struct HashMap {
       ring_buffer_start = 0;
       ring_buffer_read_end = 0;
       ring_buffer_write_end = 0;
-      ring_buffer_size = s;
-      ring_buffer_queue = q;
-      ring_buffer = b;
+      ring_buffer_size = size;
+      ring_buffer_queue = queue;
+      ring_buffer = buffer;
     }
-
-    // ensure parameter writes are visible to all threads
-    sync();
 
     // set buffer to empty and queue to full
-    for(i32 offset = 0; offset < ring_buffer_size / dim + 1; ++offset) {
+    for(i32 offset = 0; offset < size / dim + 1; ++offset) {
       i32 i = offset * dim + thread_idx;
-      if(i < ring_buffer_size) {
-        ring_buffer_queue[i] = i;
-        ring_buffer[i] = empty_entry;
+      if(i < size) {
+        queue[i] = i;
+        buffer[i] = empty_entry;
       }
     }
-
-    // ensure queue writes are visible to all threads
-    sync();
   }
 
 
@@ -265,33 +248,18 @@ struct HashMap {
 
 
 
-  __device__ inline void init(void* in_data, u32 in_data_size, u32 initial_size, u32 num_concurrent_elements, curandStatePhilox4_32_10_t* in_rng) {
+  __device__ inline void init(void* in_data, u32 in_data_size, u32 initial_size, u32 num_concurrent_elements, curandStatePhilox4_32_10_t* in_rng, i32 dim) {
     // calculate initialization variables common for all threads
-    i32 dim = (sync_type == block) ? blockDim.x : warpSize;
     i32 thread_idx = threadIdx.x % dim;
     u64 empty_entry = entry(false, false, null_pointer(), empty_key(), 0);
 
-    // set map parameters and calculate random hash functions
-    if(thread_idx == 0) {
-      // round down to ensure cache alignment
-      max_size = (((in_data_size - 3*num_concurrent_elements)/2) / GPLDA_HASH_LINE_SIZE) * GPLDA_HASH_LINE_SIZE;
-      size = min((initial_size / GPLDA_HASH_LINE_SIZE + 1) * GPLDA_HASH_LINE_SIZE, max_size);
+    // round down to ensure cache alignment
+    u32 max_size = (((in_data_size - 3*num_concurrent_elements)/2) / GPLDA_HASH_LINE_SIZE) * GPLDA_HASH_LINE_SIZE;
+    u32 size = min((initial_size / GPLDA_HASH_LINE_SIZE + 1) * GPLDA_HASH_LINE_SIZE, max_size);
 
-      // perform pointer arithmetic
-      data = (u64*) in_data;
-      temp_data = data + max_size; // no sizeof for typed pointer arithmetic
-
-      rebuild_size = 0;
-      rng = in_rng; // make sure this->rng is set before use
-      float4 r = curand_uniform4(rng);
-      a = __float2uint_rz(size * r.w);
-      b = __float2uint_rz(size * r.x);
-      c = __float2uint_rz(size * r.y);
-      d = __float2uint_rz(size * r.z);
-    }
-
-    // synchronize to ensure shared memory writes are visible
-    sync();
+    // perform pointer arithmetic
+    u64* data = (u64*) in_data;
+    u64* temp_data = data + max_size; // no sizeof for typed pointer arithmetic
 
     // set map to empty
     for(i32 offset = 0; offset < size / dim + 1; ++offset) {
@@ -301,10 +269,23 @@ struct HashMap {
       }
     }
 
-    ring_buffer_init(temp_data + max_size, (u32*) (temp_data + max_size + 2*num_concurrent_elements), 2*num_concurrent_elements);
+    ring_buffer_init(temp_data + max_size, (u32*) (temp_data + max_size + 2*num_concurrent_elements), 2*num_concurrent_elements, dim);
 
-    // synchronize to ensure initialization is complete
-    sync();
+    // set map parameters and calculate random hash functions
+    if(thread_idx == 0) {
+      this->max_size = max_size;
+      this->size = size;
+      this->data = data;
+      this->temp_data = temp_data;
+      rebuild_size = 0;
+      rng = in_rng; // make sure this->rng is set before use
+      float4 r = curand_uniform4(rng);
+      a = __float2uint_rz(size * r.w);
+      b = __float2uint_rz(size * r.x);
+      c = __float2uint_rz(size * r.y);
+      d = __float2uint_rz(size * r.z);
+    }
+
   }
 
   __device__ inline void resize_table() {
