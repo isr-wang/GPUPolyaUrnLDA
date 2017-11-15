@@ -116,7 +116,7 @@ __global__ void test_hash_map_insert_phase_1_search(void* map_storage, u32* erro
 
   key = 48;
   insert_failed = false; slot = m->hash_slot(key,m->a,m->b); stride = m->hash_slot(key,m->c,m->d);
-  m->insert_phase_1_search(key, half_lane_idx, half_lane_mask, insert_failed, slot, stride, thread_address, thread_entry, swap_idx, swap_type);
+  m->insert_phase_1_search(m->data, m->size, m->a, m->b, m->c, m->d, key, half_lane_idx, half_lane_mask, insert_failed, slot, stride, thread_address, thread_entry, swap_idx, swap_type);
   __syncthreads();
 
   if(slot != 32) {
@@ -150,7 +150,7 @@ __global__ void test_hash_map_insert_phase_1_search(void* map_storage, u32* erro
 
   key = 96;
   insert_failed = false; slot = m->hash_slot(key,m->a,m->b); stride = m->hash_slot(key,m->c,m->d);
-  m->insert_phase_1_search(key, half_lane_idx, half_lane_mask, insert_failed, slot, stride, thread_address, thread_entry, swap_idx, swap_type);
+  m->insert_phase_1_search(m->data, m->size, m->a, m->b, m->c, m->d, key, half_lane_idx, half_lane_mask, insert_failed, slot, stride, thread_address, thread_entry, swap_idx, swap_type);
   __syncthreads();
 
   if(slot != 48) {
@@ -184,7 +184,7 @@ __global__ void test_hash_map_insert_phase_1_search(void* map_storage, u32* erro
 
   key = 96;
   insert_failed = false; slot = m->hash_slot(key,m->a,m->b); stride = m->hash_slot(key,m->c,m->d);
-  m->insert_phase_1_search(key, half_lane_idx, half_lane_mask, insert_failed, slot, stride, thread_address, thread_entry, swap_idx, swap_type);
+  m->insert_phase_1_search(m->data, m->size, m->a, m->b, m->c, m->d, key, half_lane_idx, half_lane_mask, insert_failed, slot, stride, thread_address, thread_entry, swap_idx, swap_type);
   __syncthreads();
 
   if(slot != 48) {
@@ -239,7 +239,7 @@ __global__ void test_hash_map_insert_phase_1(void* map_storage, u32* error, cura
   key = 48;
   diff = 1;
   insert_failed = false; slot = m->hash_slot(key,m->a,m->b); stride = m->hash_slot(key,m->c,m->d);
-  m->insert_phase_1(key, diff, lane_idx, half_lane_idx, half_lane_mask, insert_failed, slot, stride);
+  m->insert_phase_1(m->data, m->size, m->a, m->b, m->c, m->d, key, diff, lane_idx, half_lane_idx, half_lane_mask, insert_failed, slot, stride);
   __syncthreads();
 
   if(m->value(m->data[32]) != 3) {
@@ -271,7 +271,7 @@ __global__ void test_hash_map_insert_phase_1(void* map_storage, u32* error, cura
   key = 96;
   diff = 1;
   insert_failed = false; slot = m->hash_slot(key,m->a,m->b); stride = m->hash_slot(key,m->c,m->d);
-  m->insert_phase_1(key, diff, lane_idx, half_lane_idx, half_lane_mask, insert_failed, slot, stride);
+  m->insert_phase_1(m->data, m->size, m->a, m->b, m->c, m->d, key, diff, lane_idx, half_lane_idx, half_lane_mask, insert_failed, slot, stride);
   __syncthreads();
 
   if(m->data[48] != m->entry(false,false, m->null_pointer(), 96, 2)) {
@@ -300,7 +300,7 @@ __global__ void test_hash_map_insert_phase_1(void* map_storage, u32* error, cura
   key = 96;
   diff = 1;
   insert_failed = false; slot = m->hash_slot(key,m->a,m->b); stride = m->hash_slot(key,m->c,m->d);
-  m->insert_phase_1(key, diff, lane_idx, half_lane_idx, half_lane_mask, insert_failed, slot, stride);
+  m->insert_phase_1(m->data, m->size, m->a, m->b, m->c, m->d, key, diff, lane_idx, half_lane_idx, half_lane_mask, insert_failed, slot, stride);
   __syncthreads();
 
   if(m->pointer(m->data[48]) == m->null_pointer()){
@@ -346,7 +346,7 @@ __global__ void test_hash_map_insert_phase_2_determine_index(void* map_storage, 
   }
   __syncthreads();
   slot = 16;
-  m->insert_phase_2_determine_index(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_entry_idx);
+  m->insert_phase_2_determine_index(m->data, half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_entry_idx);
   __syncthreads();
 
   if(half_warp_entry_idx != 4) {
@@ -366,7 +366,7 @@ __global__ void test_hash_map_insert_phase_2_determine_index(void* map_storage, 
   }
   __syncthreads();
   slot = 16;
-  m->insert_phase_2_determine_index(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_entry_idx);
+  m->insert_phase_2_determine_index(m->data, half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_entry_idx);
   __syncthreads();
 
   if(half_warp_entry_idx != 4) {
@@ -392,7 +392,7 @@ __global__ void test_hash_map_insert_phase_2_determine_index(void* map_storage, 
   }
   __syncthreads();
   slot = 16;
-  m->insert_phase_2_determine_index(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_entry_idx);
+  m->insert_phase_2_determine_index(m->data, half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_entry_idx);
   __syncthreads();
 
   if(half_warp_entry_idx != 5) {
@@ -442,7 +442,7 @@ __global__ void test_hash_map_insert_phase_2_determine_stage_search(void* map_st
     m->data[16] = m->with_pointer(ptr, m->with_relocate(true,m->data[16]));
   }
   __syncthreads();
-  m->insert_phase_2_determine_stage_search(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage, half_warp_link_entry);
+  m->insert_phase_2_determine_stage_search(m->data, m->size, m->a, m->b, m->c, m->d, half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage, half_warp_link_entry);
   __syncthreads();
 
   if(stage != 2) {
@@ -476,7 +476,7 @@ __global__ void test_hash_map_insert_phase_2_determine_stage_search(void* map_st
     m->data[16] = m->with_pointer(ptr, m->with_relocate(true,m->data[16]));
   }
   __syncthreads();
-  m->insert_phase_2_determine_stage_search(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage, half_warp_link_entry);
+  m->insert_phase_2_determine_stage_search(m->data, m->size, m->a, m->b, m->c, m->d, half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage, half_warp_link_entry);
   __syncthreads();
 
   if(stage != 2) {
@@ -516,7 +516,7 @@ __global__ void test_hash_map_insert_phase_2_determine_stage_search(void* map_st
     m->data[48] = m->with_pointer(ptr2, m->data[48]);
   }
   __syncthreads();
-  m->insert_phase_2_determine_stage_search(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage, half_warp_link_entry);
+  m->insert_phase_2_determine_stage_search(m->data, m->size, m->a, m->b, m->c, m->d, half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage, half_warp_link_entry);
   __syncthreads();
 
   if(stage != 3) {
@@ -551,7 +551,7 @@ __global__ void test_hash_map_insert_phase_2_determine_stage_search(void* map_st
     m->data[32] = m->with_pointer(m->null_pointer(), m->with_relocate(false, m->data[16]));
   }
   __syncthreads();
-  m->insert_phase_2_determine_stage_search(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage, half_warp_link_entry);
+  m->insert_phase_2_determine_stage_search(m->data, m->size, m->a, m->b, m->c, m->d, half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage, half_warp_link_entry);
   __syncthreads();
 
   if(stage != 3) {
@@ -616,7 +616,7 @@ __global__ void test_hash_map_insert_phase_2_determine_stage(void* map_storage, 
   __syncthreads();
 
   half_warp_entry = m->data[16];
-  m->insert_phase_2_determine_stage(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage);
+  m->insert_phase_2_determine_stage(m->data, m->size, m->a, m->b, m->c, m->d, half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage);
   __syncthreads();
 
   if(stage != 1) {
@@ -653,7 +653,7 @@ __global__ void test_hash_map_insert_phase_2_determine_stage(void* map_storage, 
   __syncthreads();
 
   half_warp_entry = m->data[16];
-  m->insert_phase_2_determine_stage(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage);
+  m->insert_phase_2_determine_stage(m->data, m->size, m->a, m->b, m->c, m->d, half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage);
   __syncthreads();
 
   if(stage != 2) {
@@ -696,7 +696,7 @@ __global__ void test_hash_map_insert_phase_2_determine_stage(void* map_storage, 
   __syncthreads();
 
   half_warp_entry = m->data[16];
-  m->insert_phase_2_determine_stage(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage);
+  m->insert_phase_2_determine_stage(m->data, m->size, m->a, m->b, m->c, m->d, half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage);
   __syncthreads();
 
   if(stage != 3) {
@@ -734,7 +734,7 @@ __global__ void test_hash_map_insert_phase_2_determine_stage(void* map_storage, 
   __syncthreads();
 
   half_warp_entry = m->data[16];
-  m->insert_phase_2_determine_stage(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage);
+  m->insert_phase_2_determine_stage(m->data, m->size, m->a, m->b, m->c, m->d, half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage);
   __syncthreads();
 
   if(stage != 4) {
@@ -763,7 +763,7 @@ __global__ void test_hash_map_insert_phase_2_determine_stage(void* map_storage, 
   __syncthreads();
 
   half_warp_entry = m->data[16];
-  m->insert_phase_2_determine_stage(half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage);
+  m->insert_phase_2_determine_stage(m->data, m->size, m->a, m->b, m->c, m->d, half_lane_idx, half_lane_mask, slot, half_warp_entry, half_warp_temp, half_warp_temp_idx, stage);
   __syncthreads();
 
   if(stage != 5) {
