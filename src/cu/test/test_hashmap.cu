@@ -218,12 +218,12 @@ __global__ void test_hash_map_insert_phase_1(void* map_storage, u32* error, cura
   // variables
   u32 key;
   i32 diff;
-  i32 lane_idx = threadIdx.x % warpSize;
   i32 half_lane_idx = threadIdx.x % (warpSize/2);
   u32 half_lane_mask = 0x0000ffff << (((threadIdx.x % warpSize) / (warpSize / 2)) * (warpSize / 2));
   i32 insert_failed;
   i32 slot;
   i32 stride;
+  i32 modify = true;
 
 
 
@@ -239,7 +239,7 @@ __global__ void test_hash_map_insert_phase_1(void* map_storage, u32* error, cura
   key = 48;
   diff = 1;
   insert_failed = false; slot = m->hash_slot(key,m->a,m->b); stride = m->hash_slot(key,m->c,m->d);
-  m->insert_phase_1(m->data, m->size, m->a, m->b, m->c, m->d, key, diff, lane_idx, half_lane_idx, half_lane_mask, insert_failed, slot, stride);
+  m->insert_phase_1(m->data, m->size, m->a, m->b, m->c, m->d, key, diff, half_lane_idx, half_lane_mask, insert_failed, slot, stride, modify);
   __syncthreads();
 
   if(m->value(m->data[32]) != 3) {
@@ -271,7 +271,7 @@ __global__ void test_hash_map_insert_phase_1(void* map_storage, u32* error, cura
   key = 96;
   diff = 1;
   insert_failed = false; slot = m->hash_slot(key,m->a,m->b); stride = m->hash_slot(key,m->c,m->d);
-  m->insert_phase_1(m->data, m->size, m->a, m->b, m->c, m->d, key, diff, lane_idx, half_lane_idx, half_lane_mask, insert_failed, slot, stride);
+  m->insert_phase_1(m->data, m->size, m->a, m->b, m->c, m->d, key, diff, half_lane_idx, half_lane_mask, insert_failed, slot, stride, modify);
   __syncthreads();
 
   if(m->data[48] != m->entry(false,false, m->null_pointer(), 96, 2)) {
@@ -300,7 +300,7 @@ __global__ void test_hash_map_insert_phase_1(void* map_storage, u32* error, cura
   key = 96;
   diff = 1;
   insert_failed = false; slot = m->hash_slot(key,m->a,m->b); stride = m->hash_slot(key,m->c,m->d);
-  m->insert_phase_1(m->data, m->size, m->a, m->b, m->c, m->d, key, diff, lane_idx, half_lane_idx, half_lane_mask, insert_failed, slot, stride);
+  m->insert_phase_1(m->data, m->size, m->a, m->b, m->c, m->d, key, diff, half_lane_idx, half_lane_mask, insert_failed, slot, stride, modify);
   __syncthreads();
 
   if(m->pointer(m->data[48]) == m->null_pointer()){
@@ -791,7 +791,9 @@ __global__ void test_hash_map_insert2(void* map_storage, u32 total_map_size, u32
   m->init(map_storage, total_map_size, initial_size, num_concurrent_elements, rng, blockDim.x);
   i32 dim = blockDim.x / (warpSize / 2);
   i32 half_warp_idx = threadIdx.x / (warpSize / 2);
+  i32 lane_idx = threadIdx.x % warpSize;
   i32 half_lane_idx = threadIdx.x % (warpSize / 2);
+  u32 half_lane_mask = 0x0000ffff << (((threadIdx.x % warpSize) / (warpSize / 2)) * (warpSize / 2));
   __syncthreads();
 
   // accumulate elements
@@ -805,7 +807,7 @@ __global__ void test_hash_map_insert2(void* map_storage, u32 total_map_size, u32
 
   // rebuild if needed
   if(rebuild == true) {
-    m->resize_table();
+    m->resize_table(lane_idx, half_lane_idx, half_lane_mask);
   }
 
   // sync if needed

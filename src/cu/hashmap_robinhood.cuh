@@ -288,12 +288,7 @@ struct HashMap {
 
   }
 
-  __device__ inline void resize_table() {
-    // compute constants
-    i32 lane_idx = threadIdx.x % warpSize;
-    i32 half_lane_idx = threadIdx.x % (warpSize / 2);
-    u32 half_lane_mask = 0x0000ffff << (((threadIdx.x % warpSize) / (warpSize / 2)) * (warpSize / 2));
-
+  __device__ inline void resize_table(i32 lane_idx, i32 half_lane_idx, u32 half_lane_mask) {
     // if triggering resize, generate new hash functions and set the new size
     if(lane_idx == 0 && rebuild_size == 0) {
       float4 r = curand_uniform4(rng);
@@ -319,13 +314,19 @@ struct HashMap {
 
 
 
-  __device__ __forceinline__ i32 resize_determine_step(u64 entry) {
+  __device__ __forceinline__ i32 resize_determine_step(u64 entry, i32 half_lane_idx, u32 half_lane_mask) {
     if(resize(entry) == true) {
       if(value(entry) == deleted_value()) {
         return 4;
       } else {
         // Step 2 or 3: perform stage 1 search in new table
-        return 2;
+        i32 insert_failed; // ignore failures
+        i32 slot = hash_slot(key(entry), rebuild_a, rebuild_b);
+        i32 stride = hash_slot(key(entry), rebuild_c, rebuild_d);
+        i32 modify = false; // ensures nothing happens if we are already in Step 3
+        insert_phase_1(temp_data, rebuild_size, rebuild_a, rebuild_b, rebuild_c, rebuild_d, key(entry), value(entry), half_lane_idx, half_lane_mask, insert_failed, slot, stride, modify);
+        insert_phase_2(temp_data, rebuild_size, rebuild_a, rebuild_b, rebuild_c, rebuild_d, half_lane_idx, half_lane_mask, insert_failed, slot, stride);
+        return 3;
       }
     } else {
       return 1;
@@ -386,18 +387,17 @@ struct HashMap {
         };
       }
 
-      // broadcast thread_entry to entire half warp
+      // broadcast entry to entire half warp
       half_warp_entry = __shfl(half_warp_entry, 0, warpSize/2);
-      i32 step = resize_determine_step(half_warp_entry);
+      i32 step = resize_determine_step(half_warp_entry, half_lane_idx, half_lane_mask); // this might perform CAS
 
+      // note: step 2 gets performed directly in resize_determine_step
       i32 half_warp_new_entry;
       if(step == 1) {
         // set the resize bit
         half_warp_new_entry = with_resize(true, half_warp_entry);
-      } else if(step == 2) {
-        // perform phase 1 insertion into new table
       } else if(step == 3) {
-        // set value in old table to deleted
+        // we either just completed or aborted phase 1 insertion: set value in old table to deleted
         half_warp_new_entry = with_value(deleted_value(), half_warp_entry);
       } else {
         // move on to the next index
@@ -408,14 +408,10 @@ struct HashMap {
       i32 success;
       if(!finished) {
         if(half_lane_idx == 0) {
-        u64 old = atomicCAS(address, half_warp_entry, half_warp_new_entry);
-        success = (old == half_warp_entry);
+          u64 old = atomicCAS(address, half_warp_entry, half_warp_new_entry);
+          success = (old == half_warp_entry);
         }
         success = __shfl(success, 0, warpSize/2);
-      }
-
-      if(step == 2 && success) {
-        // perform phase 2 resolve for new table
       }
 
       // ensure warp advances together
@@ -499,7 +495,7 @@ struct HashMap {
 
 
 
-  __device__ inline void insert_phase_1(u64* data, u32 size, u32 a, u32 b, u32 c, u32 d, u32 half_warp_key, i32 diff, i32 lane_idx, i32 half_lane_idx, u32 half_lane_mask, i32& insert_failed, i32& slot, i32 stride) {
+  __device__ inline void insert_phase_1(u64* data, u32 size, u32 a, u32 b, u32 c, u32 d, u32 half_warp_key, i32 diff, i32 half_lane_idx, u32 half_lane_mask, i32& insert_failed, i32& slot, i32 stride, i32 modify) {
     // ensure entire half warp knows key and diff to be inserted
     half_warp_key = __shfl(half_warp_key, 0, warpSize/2);
     diff = __shfl(diff, 0, warpSize/2);
@@ -510,14 +506,14 @@ struct HashMap {
       u64* thread_address;
       u64 thread_entry;
       u64 thread_new_entry;
-      i32 swap_idx;
       i32 swap_type;
+      i32 swap_idx;
 
       // find which slot the entry will go in
       insert_phase_1_search(data, size, a, b, c, d, half_warp_key, half_lane_idx, half_lane_mask, insert_failed, slot, stride, thread_address, thread_entry, swap_idx, swap_type);
 
-      // exit if search failed
-      if(insert_failed != 0) {
+      // exit if search failed, or if we found an element but aren't allowed to modify
+      if(insert_failed != 0 || (swap_type == 1 && modify == false)) {
         break;
       }
 
@@ -551,6 +547,8 @@ struct HashMap {
           ring_buffer_push(buffer_idx);
         }
       }
+
+      // ensure entire warp exits
       success = __shfl(success, swap_idx, warpSize/2);
     } while(!success);
   }
@@ -902,9 +900,10 @@ struct HashMap {
       // for Phase 1, resize and retry if failed
       do {
         insert_failed = false;
-        insert_phase_1(data, size, a, b, c, d, half_warp_key, diff, lane_idx, half_lane_idx, half_lane_mask, insert_failed, slot, stride);
+        i32 modify = true;
+        insert_phase_1(data, size, a, b, c, d, half_warp_key, diff, half_lane_idx, half_lane_mask, insert_failed, slot, stride, modify);
         if(__any(insert_failed)) {
-          resize_table();
+          resize_table(lane_idx, half_lane_idx, half_lane_mask);
         }
       } while(insert_failed == true);
 
@@ -912,7 +911,7 @@ struct HashMap {
       insert_failed = false;
       insert_phase_2(data, size, a, b, c, d, half_lane_idx, half_lane_mask, insert_failed, slot, stride);
       if(__any(insert_failed)) {
-        resize_table();
+        resize_table(lane_idx, half_lane_idx, half_lane_mask);
       }
     }
   }
