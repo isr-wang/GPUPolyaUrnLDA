@@ -313,6 +313,55 @@ struct HashMap {
 
 
 
+  __device__ inline void resize_move(i32 lane_idx, i32 half_lane_idx, u32 half_lane_mask) {
+    // iterate over map and place remaining keys
+    u32 idx = __shfl(rebuild_idx, 0);
+    while(idx < rebuild_size) {
+      // increment index
+      if(lane_idx == 0) {
+        idx = atomicAdd(&rebuild_idx, 2);
+      }
+      idx = __shfl(idx, 0);
+      if(lane_idx >= warpSize/2) {
+        idx += 1;
+      }
+
+      // if index is valid, move to new slot
+      if(idx < size) {
+        resize_move_slot(half_lane_idx, half_lane_mask, idx);
+      }
+    };
+  }
+
+
+
+  __device__ inline void resize_clear(i32 lane_idx, i32 half_lane_idx, u32 half_lane_mask) {
+    // iterate over map and ensure every key has been cleared
+    u32 idx = __shfl(rebuild_check, 0);
+    while(idx < rebuild_size) {
+      // clear any leftover keys
+      u64 thread_entry;
+      if(idx + lane_idx < size) {
+        thread_entry = data[idx + lane_idx];
+      }
+
+      u32 warp_unfinished = __ballot(idx + lane_idx < size && (resize(thread_entry) != true || value(thread_entry) != deleted_value()));
+
+      if(warp_unfinished != 0) {
+        // if there are unfinished entries, place those
+        u32 half_warp_unfinished = warp_unfinished & half_lane_mask;
+        if(half_warp_unfinished) {
+          resize_move_slot(half_lane_idx, half_lane_mask, idx + (__ffs(half_warp_unfinished) - 1));
+        }
+      } else {
+        // current slot has been cleared: update counter
+        atomicCAS(&rebuild_check, idx, idx+warpSize);
+      }
+    }
+  }
+
+
+
 
   __device__ __forceinline__ i32 resize_determine_step(u64 entry, i32 half_lane_idx, u32 half_lane_mask) {
     if(resize(entry) == true) {
@@ -333,25 +382,6 @@ struct HashMap {
     }
   }
 
-  __device__ inline void resize_move(i32 lane_idx, i32 half_lane_idx, u32 half_lane_mask) {
-    // iterate over map and place remaining keys
-    u32 idx = __shfl(rebuild_idx, 0);
-    while(idx < rebuild_size) {
-      // increment index
-      if(lane_idx == 0) {
-        idx = atomicAdd(&rebuild_idx, 2);
-      }
-      idx = __shfl(idx, 0);
-      if(lane_idx >= warpSize/2) {
-        idx += 1;
-      }
-
-      // if index is valid, move to new slot
-      if(idx < size) {
-        resize_move_slot(half_lane_idx, half_lane_mask, idx);
-      }
-    };
-  }
 
 
   __device__ inline void resize_move_slot(i32 half_lane_idx, u32 half_lane_mask, i32 idx) {
@@ -417,33 +447,6 @@ struct HashMap {
       // ensure warp advances together
       finished = __ballot(finished) & half_lane_mask;
     } while(finished != 0);
-  }
-
-
-
-  __device__ inline void resize_clear(i32 lane_idx, i32 half_lane_idx, u32 half_lane_mask) {
-    // iterate over map and ensure every key has been cleared
-    u32 idx = __shfl(rebuild_check, 0);
-    while(idx < rebuild_size) {
-      // clear any leftover keys
-      u64 thread_entry;
-      if(idx + lane_idx < size) {
-        thread_entry = data[idx + lane_idx];
-      }
-
-      u32 warp_unfinished = __ballot(idx + lane_idx < size && (resize(thread_entry) != true || value(thread_entry) != deleted_value()));
-
-      if(warp_unfinished != 0) {
-        // if there are unfinished entries, place those
-        u32 half_warp_unfinished = warp_unfinished & half_lane_mask;
-        if(half_warp_unfinished) {
-          resize_move_slot(half_lane_idx, half_lane_mask, idx + (__ffs(half_warp_unfinished) - 1));
-        }
-      } else {
-        // current slot has been cleared: update counter
-        atomicCAS(&rebuild_check, idx, idx+warpSize);
-      }
-    }
   }
 
 
