@@ -579,6 +579,13 @@ struct HashMap {
         swap_type = 3;
       }
 
+      // // if we encountered a resize bit, exit
+      u32 thread_resize = __ballot(resize(thread_entry) == true) & half_lane_mask;
+      if(thread_resize != 0) {
+        insert_failed = true;
+        break;
+      }
+
       // determine what half warp should do
       for(i32 j = 1; j <= 3; ++j) {
         u32 half_warp_swap_type = __ballot(swap_type == j) & half_lane_mask;
@@ -717,7 +724,7 @@ struct HashMap {
     half_warp_new_entry = with_relocate(true,half_warp_entry);
   }
 
-  __device__ inline void insert_phase_2_stage_2(u64* data, i32 half_lane_idx, u64*& half_warp_address, u64& half_warp_entry, u64& half_warp_new_entry, i32& half_warp_entry_idx, u64 half_warp_temp, i32 half_warp_temp_idx) {
+  __device__ inline void insert_phase_2_stage_2(u64* data, i32 half_lane_idx, u64*& half_warp_address, u64& half_warp_entry, u64& half_warp_new_entry, i32& half_warp_entry_idx, u64 half_warp_temp, i32 half_warp_temp_idx, i32& insert_failed, u32& finished) {
     // Stage 2: we have a relocation bit, but it has not been moved forward yet
     // half_warp_temp: value found by insert_phase_2_determine_stage_search
     // half_warp_temp_idx: index of value found by insert_phase_2_determine_stage_search
@@ -726,6 +733,10 @@ struct HashMap {
       half_warp_new_entry = with_relocate(false,half_warp_entry);
       half_warp_entry = half_warp_temp;
       half_warp_entry_idx = 0;
+    } else if(resize(half_warp_temp) == true) {
+      // we're trying to evict a key that's part of a resize: declare failure and exit
+      finished = true;
+      insert_failed = true;
     } else {
       // grab slot from ring buffer
       u32 buffer_idx;
@@ -842,7 +853,7 @@ struct HashMap {
       if(stage == 1) {
         insert_phase_2_stage_1(data, slot, half_warp_address, half_warp_entry, half_warp_new_entry, half_warp_entry_idx);
       } else if(stage == 2) {
-        insert_phase_2_stage_2(data, half_lane_idx, half_warp_address, half_warp_entry, half_warp_new_entry, half_warp_entry_idx, half_warp_temp, half_warp_temp_idx);
+        insert_phase_2_stage_2(data, half_lane_idx, half_warp_address, half_warp_entry, half_warp_new_entry, half_warp_entry_idx, half_warp_temp, half_warp_temp_idx, insert_failed, finished);
       } else if(stage == 3) {
         insert_phase_2_stage_3(slot, half_warp_address, half_warp_entry, half_warp_new_entry, half_warp_entry_idx, half_warp_temp);
       } else if(stage == 4) {
@@ -866,7 +877,7 @@ struct HashMap {
       }
 
       // perform post-CAS operations
-      if(stage == 2 && !success) {
+      if(stage == 2 && !insert_failed && !success) {
         // CAS failed: perform cleanup
         insert_phase_2_stage_2_cleanup(half_lane_idx, half_warp_entry, half_warp_new_entry);
       } else if(stage == 4 && success) {
