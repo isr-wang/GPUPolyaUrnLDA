@@ -16,21 +16,22 @@
 namespace gplda {
 
 struct HashMap {
-  u32 size;
-  u32 max_size;
-  u64* data;
-  u64* temp_data;
-  u32 a;
-  u32 b;
-  u32 c;
-  u32 d;
-  u32 rebuild_size;
+  u32 size_1;
+  u64* data_1;
+  u32 a_1;
+  u32 b_1;
+  u32 c_1;
+  u32 d_1;
+  u32 size_2;
+  u64* data_2;
+  u32 a_2;
+  u32 b_2;
+  u32 c_2;
+  u32 d_2;
+  u32 state;
   u32 rebuild_idx;
   u32 rebuild_check;
-  u32 rebuild_a;
-  u32 rebuild_b;
-  u32 rebuild_c;
-  u32 rebuild_d;
+  u32 max_size;
   curandStatePhilox4_32_10_t* rng;
   u32 ring_buffer_start;
   u32 ring_buffer_read_end;
@@ -129,17 +130,40 @@ struct HashMap {
 
   #ifdef GPLDA_HASH_DEBUG
   __device__ inline void debug_print_slot(u32 slot) {
+    // determine state
+    u64* data;
+    i32 size;
+    i32 a;
+    i32 b;
+    i32 c;
+    i32 d;
+    if(state == 1 || state == 2) {
+      data = data_1;
+      size = size_1;
+      a = a_1;
+      b = b_1;
+      c = c_1;
+      d = d_1;
+    } else {
+      data = data_2;
+      size = size_2;
+      a = a_2;
+      b = b_2;
+      c = c_2;
+      d = d_2;
+    }
+
     printf("\n");
     printf("hl:s\tr\tp\tk\tv\tis:st:d\n");
     for(u32 s = slot; s < slot + warpSize/2; ++s) {
       u64 entry = data[s % size];
       printf("%d:%d\t%d\t%d\t%d\t%ld\t", s % 16, s % size, relocate(entry), pointer(entry), key(entry), value(entry));
-      if(key(entry) != empty_key()) printf("%d:%d:%d", hash_slot(key(entry),a,b), hash_slot(key(entry),c,d), key_distance(key(entry), slot, size,a,b,c,d));
+      if(key(entry) != empty_key()) printf("%d:%d:%d", hash_slot(key(entry),a,b,size), hash_slot(key(entry),c,d,size), key_distance(key(entry), slot, size,a,b,c,d));
       while(pointer(entry) != null_pointer()) {
         i32 buffer_idx = pointer(entry);
         entry = ring_buffer[buffer_idx];
         printf("\t-------->\t%d:%d\t%d\t%d\t%d\t%ld\t", s % 16, buffer_idx, relocate(entry), pointer(entry), key(entry), value(entry));
-        if(key(entry) != empty_key()) printf("%d:%d:%d", hash_slot(key(entry),a,b), hash_slot(key(entry),c,d), key_distance(key(entry), slot, size,a,b,c,d));
+        if(key(entry) != empty_key()) printf("%d:%d:%d", hash_slot(key(entry),a,b,size), hash_slot(key(entry),c,d,size), key_distance(key(entry), slot, size,a,b,c,d));
       }
       printf("\n");
     }
@@ -170,7 +194,7 @@ struct HashMap {
     warp_start = __shfl(warp_start, leader);
 
     // write elements to queue
-    ring_buffer_queue[(warp_start + offset) % size] = element;
+    ring_buffer_queue[(warp_start + offset) % ring_buffer_size] = element;
 
     // increment number of elements that may be read from queue
     if(lane_idx == leader) {
@@ -228,13 +252,13 @@ struct HashMap {
 
 
 
-  __device__ __forceinline__ i32 hash_slot(u32 key, i32 x, i32 y) {
+  __device__ __forceinline__ i32 hash_slot(u32 key, i32 x, i32 y, i32 size) {
     return (((x * key + y) % 334214459) % (size / GPLDA_HASH_LINE_SIZE)) * GPLDA_HASH_LINE_SIZE;
   }
 
   __device__ __forceinline__ i32 key_distance(u32 key, u32 slot, u32 size, u32 a, u32 b, u32 c, u32 d) {
-    u32 initial_slot = hash_slot(key,a,b);
-    u32 stride = hash_slot(key,c,d);
+    u32 initial_slot = hash_slot(key,a,b,size);
+    u32 stride = hash_slot(key,c,d,size);
     #pragma unroll
     for(i32 i = 0; i < GPLDA_HASH_MAX_NUM_LINES - 1; ++i) {
       if((initial_slot + i*stride) % size == slot) {
@@ -273,50 +297,83 @@ struct HashMap {
 
     // set map parameters and calculate random hash functions
     if(thread_idx == 0) {
+      state = 1;
       this->max_size = max_size;
-      this->size = size;
-      this->data = data;
-      this->temp_data = temp_data;
-      rebuild_size = 0;
+      size_1 = size;
+      data_1 = data;
       rng = in_rng; // make sure this->rng is set before use
-      float4 r = curand_uniform4(rng);
-      a = __float2uint_rz(size * r.w);
-      b = __float2uint_rz(size * r.x);
-      c = __float2uint_rz(size * r.y);
-      d = __float2uint_rz(size * r.z);
+      float4 r_1 = curand_uniform4(rng);
+      a_1 = __float2uint_rz(size * r_1.w);
+      b_1 = __float2uint_rz(size * r_1.x);
+      c_1 = __float2uint_rz(size * r_1.y);
+      d_1 = __float2uint_rz(size * r_1.z);
+      size_2 = umin(max_size, __float2uint_rz(size * GPLDA_HASH_GROWTH_RATE) + warpSize);
+      data_2 = temp_data;
+      float4 r_2 = curand_uniform4(rng);
+      a_2 = __float2uint_rz(size * r_2.w);
+      b_2 = __float2uint_rz(size * r_2.x);
+      c_2 = __float2uint_rz(size * r_2.y);
+      d_2 = __float2uint_rz(size * r_2.z);
     }
 
   }
 
   __device__ inline void resize_table(i32 lane_idx, i32 half_lane_idx, u32 half_lane_mask) {
-    // if triggering resize, generate new hash functions and set the new size
-    if(lane_idx == 0 && rebuild_size == 0) {
-      float4 r = curand_uniform4(rng);
-      atomicCAS(&rebuild_a, a, __float2uint_rz(size * r.w));
-      atomicCAS(&rebuild_b, b, __float2uint_rz(size * r.x));
-      atomicCAS(&rebuild_c, c, __float2uint_rz(size * r.y));
-      atomicCAS(&rebuild_d, d, __float2uint_rz(size * r.z));
-      atomicCAS(&rebuild_size, 0, umin(max_size, __float2uint_rz(size * GPLDA_HASH_GROWTH_RATE) + warpSize));
+    // if triggering resize, update the state
+    if(lane_idx == 0 && state == 1) {
+      atomicCAS(&state, 1, 2);
+    } else if(lane_idx == 0 && state == 3) {
+      atomicCAS(&state, 3, 4);
+    }
+
+
+    // determine state
+    u64* data;
+    u64* rebuild_data;
+    i32 size;
+    i32 rebuild_size;
+    i32 rebuild_a;
+    i32 rebuild_b;
+    i32 rebuild_c;
+    i32 rebuild_d;
+    if(state == 2) {
+      data = data_1;
+      size = size_1;
+      rebuild_data = data_2;
+      rebuild_size = size_2;
+      rebuild_a = a_2;
+      rebuild_b = b_2;
+      rebuild_c = c_2;
+      rebuild_d = d_2;
+    } else {
+      data = data_2;
+      size = size_2;
+      rebuild_data = data_1;
+      rebuild_size = size_1;
+      rebuild_a = a_1;
+      rebuild_b = b_1;
+      rebuild_c = c_1;
+      rebuild_d = d_1;
     }
 
     // move entries
-    resize_move(lane_idx, half_lane_idx, half_lane_mask);
+    resize_move(data, size, lane_idx, half_lane_idx, half_lane_mask, rebuild_data, rebuild_a, rebuild_b, rebuild_c, rebuild_d, rebuild_size);
 
     // clear any unfinished entries
-    resize_clear(lane_idx, half_lane_idx, half_lane_mask);
+    resize_clear(data, size, lane_idx, half_lane_idx, half_lane_mask, rebuild_data, rebuild_a, rebuild_b, rebuild_c, rebuild_d, rebuild_size);
 
     // if everything has been inserted, swap pointers and complete resize
     if(rebuild_check + 1 >= rebuild_size) {
-      // TODO: last warp sets old memory to empty
+      // TODO: last warp sets old memory to empty, updates hash functions, and
     }
   }
 
 
 
-  __device__ inline void resize_move(i32 lane_idx, i32 half_lane_idx, u32 half_lane_mask) {
+  __device__ inline void resize_move(u64* data, i32 size, i32 lane_idx, i32 half_lane_idx, u32 half_lane_mask, u64* rebuild_data, i32 rebuild_a, i32 rebuild_b, i32 rebuild_c, i32 rebuild_d, i32 rebuild_size) {
     // iterate over map and place remaining keys
     u32 idx = __shfl(rebuild_idx, 0);
-    while(idx < rebuild_size) {
+    while(idx < size) {
       // increment index
       if(lane_idx == 0) {
         idx = atomicAdd(&rebuild_idx, 2);
@@ -328,14 +385,14 @@ struct HashMap {
 
       // if index is valid, move to new slot
       if(idx < size) {
-        resize_move_slot(half_lane_idx, half_lane_mask, idx);
+        resize_move_slot(data, half_lane_idx, half_lane_mask, idx, rebuild_data, rebuild_a, rebuild_b, rebuild_c, rebuild_d, rebuild_size);
       }
     };
   }
 
 
 
-  __device__ inline void resize_clear(i32 lane_idx, i32 half_lane_idx, u32 half_lane_mask) {
+  __device__ inline void resize_clear(u64* data, i32 size, i32 lane_idx, i32 half_lane_idx, u32 half_lane_mask, u64* rebuild_data, i32 rebuild_a, i32 rebuild_b, i32 rebuild_c, i32 rebuild_d, i32 rebuild_size) {
     // iterate over map and ensure every key has been cleared
     u32 idx = __shfl(rebuild_check, 0);
     while(idx < rebuild_size) {
@@ -351,9 +408,9 @@ struct HashMap {
         // if there are unfinished entries, place those
         u32 half_warp_unfinished = warp_unfinished & half_lane_mask;
         if(half_warp_unfinished) {
-          resize_move_slot(half_lane_idx, half_lane_mask, idx + (__ffs(half_warp_unfinished) - 1));
+          resize_move_slot(data, half_lane_idx, half_lane_mask, idx + (__ffs(half_warp_unfinished) - 1), rebuild_data, rebuild_a, rebuild_b, rebuild_c, rebuild_d, rebuild_size);
         }
-      } else {
+      } else if(lane_idx == 0) {
         // current slot has been cleared: update counter
         atomicCAS(&rebuild_check, idx, idx+warpSize);
       }
@@ -363,18 +420,18 @@ struct HashMap {
 
 
 
-  __device__ __forceinline__ i32 resize_determine_step(u64 entry, i32 half_lane_idx, u32 half_lane_mask) {
+  __device__ __forceinline__ i32 resize_determine_step(u64 entry, i32 half_lane_idx, u32 half_lane_mask, u64* rebuild_data, i32 rebuild_a, i32 rebuild_b, i32 rebuild_c, i32 rebuild_d, i32 rebuild_size) {
     if(resize(entry) == true) {
       if(value(entry) == deleted_value()) {
         return 4;
       } else {
         // Step 2 or 3: perform stage 1 search in new table
         i32 insert_failed; // ignore failures
-        i32 slot = hash_slot(key(entry), rebuild_a, rebuild_b);
-        i32 stride = hash_slot(key(entry), rebuild_c, rebuild_d);
+        i32 slot = hash_slot(key(entry), rebuild_a, rebuild_b, rebuild_size);
+        i32 stride = hash_slot(key(entry), rebuild_c, rebuild_d, rebuild_size);
         i32 modify = false; // ensures nothing happens if we are already in Step 3
-        insert_phase_1(temp_data, rebuild_size, rebuild_a, rebuild_b, rebuild_c, rebuild_d, key(entry), value(entry), half_lane_idx, half_lane_mask, insert_failed, slot, stride, modify);
-        insert_phase_2(temp_data, rebuild_size, rebuild_a, rebuild_b, rebuild_c, rebuild_d, half_lane_idx, half_lane_mask, insert_failed, slot, stride);
+        insert_phase_1(rebuild_data, rebuild_size, rebuild_a, rebuild_b, rebuild_c, rebuild_d, key(entry), value(entry), half_lane_idx, half_lane_mask, insert_failed, slot, stride, modify);
+        insert_phase_2(rebuild_data, rebuild_size, rebuild_a, rebuild_b, rebuild_c, rebuild_d, half_lane_idx, half_lane_mask, insert_failed, slot, stride);
         return 3;
       }
     } else {
@@ -384,7 +441,7 @@ struct HashMap {
 
 
 
-  __device__ inline void resize_move_slot(i32 half_lane_idx, u32 half_lane_mask, i32 idx) {
+  __device__ inline void resize_move_slot(u64* data, i32 half_lane_idx, u32 half_lane_mask, i32 idx, u64* rebuild_data, i32 rebuild_a, i32 rebuild_b, i32 rebuild_c, i32 rebuild_d, i32 rebuild_size) {
     // repeat until pointers have been exhausted
     i32 finished;
     do {
@@ -419,7 +476,9 @@ struct HashMap {
 
       // broadcast entry to entire half warp
       half_warp_entry = __shfl(half_warp_entry, 0, warpSize/2);
-      i32 step = resize_determine_step(half_warp_entry, half_lane_idx, half_lane_mask); // this might perform CAS
+
+      // this might perform CAS
+      i32 step = resize_determine_step(half_warp_entry, half_lane_idx, half_lane_mask, rebuild_data, rebuild_a, rebuild_b, rebuild_c, rebuild_d, rebuild_size);
 
       // note: step 2 gets performed directly in resize_determine_step
       i32 half_warp_new_entry;
@@ -459,9 +518,32 @@ struct HashMap {
     i32 half_lane_idx = threadIdx.x % (warpSize / 2);
     u32 half_lane_mask = 0x0000ffff << (((threadIdx.x % warpSize) / (warpSize / 2)) * (warpSize / 2));
 
+    // determine state
+    u64* data;
+    i32 size;
+    i32 a;
+    i32 b;
+    i32 c;
+    i32 d;
+    if(state == 1 || state == 2) {
+      data = data_1;
+      size = size_1;
+      a = a_1;
+      b = b_1;
+      c = c_1;
+      d = d_1;
+    } else {
+      data = data_2;
+      size = size_2;
+      a = a_2;
+      b = b_2;
+      c = c_2;
+      d = d_2;
+    }
+
     // check table
-    i32 initial_slot = hash_slot(half_warp_key,a,b);
-    i32 stride = hash_slot(half_warp_key,c,d);
+    i32 initial_slot = hash_slot(half_warp_key,a,b,size);
+    i32 stride = hash_slot(half_warp_key,c,d,size);
     for(i32 i = 0; i < GPLDA_HASH_MAX_NUM_LINES; ++i) {
       // compute slot and retrieve entry
       i32 slot = (initial_slot + i * stride) % size;
@@ -652,7 +734,7 @@ struct HashMap {
 
   __device__ inline void insert_phase_2_determine_stage_search(u64* data, u32 size, u32 a, u32 b, u32 c, u32 d, i32 half_lane_idx, u32 half_lane_mask, i32 slot, u64 half_warp_entry, u64& half_warp_temp, i32& half_warp_temp_idx, i32& stage, u64 half_warp_link_entry) {
     // Either stage 2 or 3: element has relocation bit, but its first linked element doesn't: find slot relocated element is supposed to go in
-    i32 stride = hash_slot(key(half_warp_entry),c,d);
+    i32 stride = hash_slot(key(half_warp_entry),c,d,size);
     i32 max_num_lines = GPLDA_HASH_MAX_NUM_LINES - key_distance(key(half_warp_entry), slot, size, a, b, c, d);
     for(i32 i = 1; i <= max_num_lines; ++i) {
       // if we're at the last iteration and haven't exited the loop yet, return indicating failure
@@ -790,7 +872,7 @@ struct HashMap {
     }
 
     // advance to next slot, until we find the previously-lined entry's key
-    i32 advance_stride = hash_slot(key(half_warp_new_entry), c,d);
+    i32 advance_stride = hash_slot(key(half_warp_new_entry), c,d,size);
     i32 advance_max_num_lines = GPLDA_HASH_MAX_NUM_LINES - key_distance(key(half_warp_new_entry), slot, size, a, b, c, d);
     for(i32 i = 1; i < advance_max_num_lines; ++i) {
       i32 advance_slot = (slot + i * advance_stride) % size;
@@ -906,9 +988,32 @@ struct HashMap {
     // create a variable so that we return only once
     i32 insert_failed = false;
 
+    // determine state
+    u64* data;
+    i32 size;
+    i32 a;
+    i32 b;
+    i32 c;
+    i32 d;
+    if(state == 1 || state == 2) {
+      data = data_1;
+      size = size_1;
+      a = a_1;
+      b = b_1;
+      c = c_1;
+      d = d_1;
+    } else {
+      data = data_2;
+      size = size_2;
+      a = a_2;
+      b = b_2;
+      c = c_2;
+      d = d_2;
+    }
+
     // insert key into linked queue
-    i32 slot = hash_slot(half_warp_key,a,b);
-    i32 stride = hash_slot(half_warp_key,c,d);
+    i32 slot = hash_slot(half_warp_key,a,b,size);
+    i32 stride = hash_slot(half_warp_key,c,d,size);
 
     if(diff != 0) {
       // for Phase 1, resize and retry if failed
@@ -917,7 +1022,7 @@ struct HashMap {
         i32 modify = true;
         insert_phase_1(data, size, a, b, c, d, half_warp_key, diff, half_lane_idx, half_lane_mask, insert_failed, slot, stride, modify);
         if(__any(insert_failed)) {
-          resize_table(lane_idx, half_lane_idx, half_lane_mask);
+           resize_table(lane_idx, half_lane_idx, half_lane_mask);
         }
       } while(insert_failed == true);
 
@@ -925,7 +1030,7 @@ struct HashMap {
       insert_failed = false;
       insert_phase_2(data, size, a, b, c, d, half_lane_idx, half_lane_mask, insert_failed, slot, stride);
       if(__any(insert_failed)) {
-        resize_table(lane_idx, half_lane_idx, half_lane_mask);
+         resize_table(lane_idx, half_lane_idx, half_lane_mask);
       }
     }
   }
