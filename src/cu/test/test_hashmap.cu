@@ -989,28 +989,28 @@ void test_hash_map() {
     assert(out_host[i] == num_elements / num_unique_elements);
     out_host[i] = 0;
   }
-  //
-  // // accumulate2<warp, rebuild>
-  // test_hash_map_accumulate2<gplda::warp, true><<<1,warpSize>>>(map, total_map_size, num_unique_elements, num_elements, max_size, num_concurrent_elements, out, rng);
-  // cudaDeviceSynchronize() >> GPLDA_CHECK;
-  //
-  // cudaMemcpy(out_host, out, num_elements * sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
-  //
-  // for(i32 i = 0; i < num_unique_elements; ++i) {
-  //   assert(out_host[i] == num_elements / num_unique_elements);
-  //   out_host[i] = 0;
-  // }
-  //
-  // // accumulate2<block, rebuild>
-  // test_hash_map_accumulate2<gplda::block, true><<<1,GPLDA_POLYA_URN_SAMPLE_BLOCKDIM>>>(map, total_map_size, num_unique_elements, num_elements, max_size, num_concurrent_elements, out, rng);
-  // cudaDeviceSynchronize() >> GPLDA_CHECK;
-  //
-  // cudaMemcpy(out_host, out, num_elements * sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
-  //
-  // for(i32 i = 0; i < num_unique_elements; ++i) {
-  //   assert(out_host[i] == num_elements / num_unique_elements);
-  //   out_host[i] = 0;
-  // }
+
+  // insert2: warp, rebuild
+  test_hash_map_insert2<<<1,warpSize>>>(map, total_map_size, num_unique_elements, num_elements, max_size, num_concurrent_elements, out, rng, true);
+  cudaDeviceSynchronize() >> GPLDA_CHECK;
+
+  cudaMemcpy(out_host, out, num_elements * sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
+
+  for(i32 i = 0; i < num_unique_elements; ++i) {
+    assert(out_host[i] == num_elements / num_unique_elements);
+    out_host[i] = 0;
+  }
+
+  // insert2: block, rebuild
+  test_hash_map_insert2<<<1,GPLDA_POLYA_URN_SAMPLE_BLOCKDIM>>>(map, total_map_size, num_unique_elements, num_elements, max_size, num_concurrent_elements, out, rng, true);
+  cudaDeviceSynchronize() >> GPLDA_CHECK;
+
+  cudaMemcpy(out_host, out, num_elements * sizeof(u32), cudaMemcpyDeviceToHost) >> GPLDA_CHECK;
+
+  for(i32 i = 0; i < num_unique_elements; ++i) {
+    assert(out_host[i] == num_elements / num_unique_elements);
+    out_host[i] = 0;
+  }
 
 
 

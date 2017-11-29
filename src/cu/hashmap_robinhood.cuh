@@ -286,9 +286,9 @@ struct HashMap {
     u64* temp_data = data + max_size; // no sizeof for typed pointer arithmetic
 
     // set map to empty
-    for(i32 offset = 0; offset < size / dim + 1; ++offset) {
+    for(i32 offset = 0; offset < (2*max_size) / dim + 1; ++offset) {
       i32 i = offset * dim + thread_idx;
-      if(i < size) {
+      if(i < 2*max_size) {
         data[i] = empty_entry;
       }
     }
@@ -362,9 +362,50 @@ struct HashMap {
     // clear any unfinished entries
     resize_clear(data, size, lane_idx, half_lane_idx, half_lane_mask, rebuild_data, rebuild_a, rebuild_b, rebuild_c, rebuild_d, rebuild_size);
 
-    // if everything has been inserted, swap pointers and complete resize
-    if(rebuild_check + 1 >= rebuild_size) {
-      // TODO: last warp sets old memory to empty, updates hash functions, and
+    // if everything has been inserted, last warp performs cleanup
+    i32 resize_state = -1;
+    if(lane_idx == 0 && state == 2) {
+      resize_state = atomicCAS(&state, 2, 3);
+    } else if(lane_idx == 0 && state == 4) {
+      resize_state = atomicCAS(&state, 4, 1);
+    }
+    resize_state = __shfl(resize_state, 0);
+
+    if(resize_state == 2 || resize_state == 4) {
+      // update hash functions and calculate new size
+      if(lane_idx == 0 && resize_state == 2) {
+        float4 r_1 = curand_uniform4(rng);
+        a_1 = __float2uint_rz(size * r_1.w);
+        b_1 = __float2uint_rz(size * r_1.x);
+        c_1 = __float2uint_rz(size * r_1.y);
+        d_1 = __float2uint_rz(size * r_1.z);
+        size_1 = umin(max_size, __float2uint_rz(size_2 * GPLDA_HASH_GROWTH_RATE) + warpSize);
+      } else if(lane_idx == 0 && resize_state == 4) {
+        float4 r_2 = curand_uniform4(rng);
+        a_2 = __float2uint_rz(size * r_2.w);
+        b_2 = __float2uint_rz(size * r_2.x);
+        c_2 = __float2uint_rz(size * r_2.y);
+        d_2 = __float2uint_rz(size * r_2.z);
+        size_2 = umin(max_size, __float2uint_rz(size_1 * GPLDA_HASH_GROWTH_RATE) + warpSize);
+      }
+
+      // set old memory to empty
+      u64* data;
+      i32 size;
+      if(resize_state == 2) {
+        data = data_1;
+        size = size_1;
+      } else if(resize_state == 4) {
+        data = data_2;
+        size = size_2;
+      }
+      u64 empty_entry = entry(false, false, null_pointer(), empty_key(), 0);
+      for(i32 offset = 0; offset < size / warpSize + 1; ++offset) {
+        i32 i = offset * warpSize + lane_idx;
+        if(i < size) {
+          data[i] = empty_entry;
+        }
+      }
     }
   }
 
@@ -394,8 +435,11 @@ struct HashMap {
 
   __device__ inline void resize_clear(u64* data, i32 size, i32 lane_idx, i32 half_lane_idx, u32 half_lane_mask, u64* rebuild_data, i32 rebuild_a, i32 rebuild_b, i32 rebuild_c, i32 rebuild_d, i32 rebuild_size) {
     // iterate over map and ensure every key has been cleared
-    u32 idx = __shfl(rebuild_check, 0);
-    while(idx < rebuild_size) {
+    i32 idx;
+    do {
+      // get index
+      idx = __shfl(rebuild_check, 0);
+
       // clear any leftover keys
       u64 thread_entry;
       if(idx + lane_idx < size) {
@@ -414,7 +458,7 @@ struct HashMap {
         // current slot has been cleared: update counter
         atomicCAS(&rebuild_check, idx, idx+warpSize);
       }
-    }
+    } while(idx < rebuild_size);
   }
 
 
