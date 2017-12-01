@@ -314,6 +314,8 @@ struct HashMap {
       b_2 = __float2uint_rz(size * r_2.x);
       c_2 = __float2uint_rz(size * r_2.y);
       d_2 = __float2uint_rz(size * r_2.z);
+      rebuild_idx = 0;
+      rebuild_check = 0;
     }
 
   }
@@ -399,6 +401,8 @@ struct HashMap {
         data = data_2;
         size = size_2;
       }
+      rebuild_idx = 0;
+      rebuild_check = 0;
       u64 empty_entry = entry(false, false, null_pointer(), empty_key(), 0);
       for(i32 offset = 0; offset < size / warpSize + 1; ++offset) {
         i32 i = offset * warpSize + lane_idx;
