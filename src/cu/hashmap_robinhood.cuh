@@ -527,18 +527,13 @@ struct HashMap {
       }
 
       // swap in new value
-      i32 success;
-      if(!finished) {
-        if(half_lane_idx == 0) {
-          u64 old = atomicCAS(address, half_warp_entry, half_warp_new_entry);
-          success = (old == half_warp_entry);
-        }
-        success = __shfl(success, 0, warpSize/2);
+      if(!finished && half_lane_idx == 0) {
+        atomicCAS(address, half_warp_entry, half_warp_new_entry);
       }
 
       // ensure warp advances together
       finished = __ballot(finished) & half_lane_mask;
-    } while(finished != 0);
+    } while(finished == 0);
   }
 
 
