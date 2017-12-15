@@ -64,7 +64,7 @@ extern "C" void initialize(Args* init_args, Buffer* buffers, u32 n_buffers) {
     cudaMalloc(&buffers[i].gpu_d_len, args->max_K_d * sizeof(u32)) >> GPLDA_CHECK;
     cudaMalloc(&buffers[i].gpu_d_idx, args->max_K_d * sizeof(u32)) >> GPLDA_CHECK;
     cudaMalloc(&buffers[i].gpu_K_d, args->max_K_d * sizeof(u32)) >> GPLDA_CHECK;
-    cudaMalloc(&buffers[i].gpu_temp, 2 * (args->max_K_d + GPLDA_HASH_STASH_SIZE) * sizeof(u32)) >> GPLDA_CHECK;
+    cudaMalloc(&buffers[i].gpu_temp, 2 * (args->max_K_d /*+ GPLDA_HASH_STASH_SIZE*/) * sizeof(u32)) >> GPLDA_CHECK;
     cudaMalloc(&buffers[i].gpu_rng, sizeof(curandStatePhilox4_32_10_t)) >> GPLDA_CHECK;
     rng_init<<<1,1>>>(0, i + 1, buffers[i].gpu_rng);
     cudaDeviceSynchronize() >> GPLDA_CHECK;

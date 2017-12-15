@@ -61,20 +61,20 @@ __device__ __forceinline__ u32 draw_wary_search(f32 u) {
   return 0;
 }
 
-__device__ __forceinline__ void count_topics(u32* z, u32 document_size, u32 max_K_d, HashMap<warp>* m, void* temp, i32 lane_idx, curandStatePhilox4_32_10_t* rng) {
+__device__ __forceinline__ void count_topics(u32* z, u32 document_size, u32 max_K_d, HashMap* m, void* temp, i32 lane_idx, curandStatePhilox4_32_10_t* rng) {
   // initialize the hash table
-  m->init(temp, document_size, max_K_d, rng);
+  // m->init(temp, document_size, max_K_d, rng);
 
   // loop over z, add to m
   for(i32 offset = 0; offset < document_size / warpSize + 1; ++offset) {
     i32 i = offset * warpSize + lane_idx;
     if(i < document_size) {
-      m->accumulate(z[i], i);
+      // m->accumulate(z[i], i);
     }
   }
 }
 
-__device__ __forceinline__ f32 compute_product_cumsum(u32* mPhi, HashMap<warp>* m, f32* Phi_dense, i32 warp_idx, cub::WarpScan<i32>::TempStorage* temp) {
+__device__ __forceinline__ f32 compute_product_cumsum(u32* mPhi, HashMap* m, f32* Phi_dense, i32 warp_idx, cub::WarpScan<i32>::TempStorage* temp) {
   i32 thread_mPhi = 0;
   cub::WarpScan<i32>(temp[warp_idx]).ExclusiveSum(thread_mPhi, thread_mPhi);
   return 0.0f;
@@ -89,8 +89,8 @@ __global__ void warp_sample_topics(u32 size, u32 n_docs,
   i32 lane_idx = threadIdx.x % warpSize;
   i32 warp_idx = threadIdx.x / warpSize;
   curandStatePhilox4_32_10_t warp_rng = rng[0];
-  __shared__ HashMap<warp> m[1];
-  u32** mPhi = (u32**) &m[1].temp_data;
+  __shared__ HashMap m[1];
+  u32** mPhi;// = (u32**) &m[1].temp_data;
   __shared__ typename cub::WarpScan<i32>::TempStorage warp_scan_temp[1];
 
   // loop over documents

@@ -1,5 +1,5 @@
 #include "test_hashmap.cuh"
-#include "../hashmap_robinhood.cuh"
+#include "../hashmap.cuh"
 #include "../random.cuh"
 #include "../error.cuh"
 #include "assert.h"
