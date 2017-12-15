@@ -129,40 +129,25 @@ struct HashMap {
 
 
   #ifdef GPLDA_HASH_DEBUG
-  __device__ inline void debug_print_slot(u32 slot) {
+  __device__ inline void debug_print_slot(u32 slot, i32 table = 1) {
     // determine state
-    u64* data;
-    i32 size;
-    i32 a;
-    i32 b;
-    i32 c;
-    i32 d;
-    if(state == 1 || state == 2) {
-      data = data_1;
-      size = size_1;
-      a = a_1;
-      b = b_1;
-      c = c_1;
-      d = d_1;
-    } else {
-      data = data_2;
-      size = size_2;
-      a = a_2;
-      b = b_2;
-      c = c_2;
-      d = d_2;
-    }
+    u64* data = table == 2 ? data_2 : data_1;
+    i32 size = table == 2 ? size_2 : size_1;
+    i32 a = table == 2 ? a_2 : a_1;
+    i32 b = table == 2 ? b_2 : b_1;
+    i32 c = table == 2 ? c_2 : c_1;
+    i32 d = table == 2 ? d_2 : d_1;
 
     printf("\n");
-    printf("hl:s\tr\tp\tk\tv\tis:st:d\n");
+    printf("hl:s\trs\trl\tp\tk\tv\tis:st:d\n");
     for(u32 s = slot; s < slot + warpSize/2; ++s) {
       u64 entry = data[s % size];
-      printf("%d:%d\t%d\t%d\t%d\t%ld\t", s % 16, s % size, relocate(entry), pointer(entry), key(entry), value(entry));
+      printf("%d:%d\t%d\t%d\t%d\t%d\t%ld\t", s % 16, s % size, resize(entry), relocate(entry), pointer(entry), key(entry), value(entry));
       if(key(entry) != empty_key()) printf("%d:%d:%d", hash_slot(key(entry),a,b,size), hash_slot(key(entry),c,d,size), key_distance(key(entry), slot, size,a,b,c,d));
       while(pointer(entry) != null_pointer()) {
         i32 buffer_idx = pointer(entry);
         entry = ring_buffer[buffer_idx];
-        printf("\t-------->\t%d:%d\t%d\t%d\t%d\t%ld\t", s % 16, buffer_idx, relocate(entry), pointer(entry), key(entry), value(entry));
+        printf("\t-------->\t%d:%d\t%d\t%d\t%d\t%d\t%ld\t", s % 16, buffer_idx, resize(entry), relocate(entry), pointer(entry), key(entry), value(entry));
         if(key(entry) != empty_key()) printf("%d:%d:%d", hash_slot(key(entry),a,b,size), hash_slot(key(entry),c,d,size), key_distance(key(entry), slot, size,a,b,c,d));
       }
       printf("\n");
@@ -529,7 +514,7 @@ struct HashMap {
       i32 step = resize_determine_step(half_warp_entry, half_lane_idx, half_lane_mask, rebuild_data, rebuild_a, rebuild_b, rebuild_c, rebuild_d, rebuild_size);
 
       // note: step 2 gets performed directly in resize_determine_step
-      i32 half_warp_new_entry;
+      u64 half_warp_new_entry;
       if(step == 1) {
         // set the resize bit
         half_warp_new_entry = with_resize(true, half_warp_entry);
